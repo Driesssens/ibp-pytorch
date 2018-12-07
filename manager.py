@@ -11,7 +11,7 @@ class Manager(torch.nn.Module):
         N_STEP = 2
         TREE = 3
 
-    class Moves(Enum):
+    class Moves(IntEnum):
         ACT = 1
         IMAGINE_FROM_REAL_STATE = 2
         IMAGINE_FROM_LAST_IMAGINATION = 3
