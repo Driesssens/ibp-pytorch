@@ -30,7 +30,7 @@ SETTINGS_FROM_PAPERS = {
         "sun_random_radial_distance_interval": (100, 200)
     },
     AcademicPapers.LearningModelBasedPlanningFromScratch: {
-        "n_actions_per_episode": 1,
+        "n_actions_per_episode": 3,
         "euler_method_step_size": 0.05,
         "gravitational_constant": "UNKNOWN",  # todo: ???
         "damping_constant": "UNKNOWN",  # todo: ???
@@ -217,8 +217,8 @@ class SpaceshipEnvironment(gym.Env):
             'planets': self.planets
         }
 
-    def step(self, xy_thrust_force):
-        if not self.first_step_of_action():
+    def step(self, xy_thrust_force=None):
+        if not self.first_step_of_action() or xy_thrust_force is None:
             # Ignore the action when this is a timestep at which the thrusters may not be fired.
             xy_thrust_force = np.zeros(2)
         else:
@@ -400,8 +400,11 @@ class SpaceObject:
     def encode_dynamic_properties(self):
         return np.concatenate((self.xy_position, self.xy_velocity))
 
+    def encode_state(self):
+        return np.concatenate((self.encode_static_properties(), self.encode_dynamic_properties()))
+
     def encode_as_vector(self):
-        return np.concatenate((self.encode_type_one_hot(), self.encode_static_properties(), self.encode_dynamic_properties()))
+        return np.concatenate((self.encode_type_one_hot(), self.encode_state()))
 
     @property
     def x(self):
