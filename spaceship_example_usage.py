@@ -1,25 +1,26 @@
-from spaceship_environment import SpaceshipEnvironment
+from spaceship_environment import SpaceshipEnvironment, GravityCap
 import time
 import numpy as np
-from spaceship_environment import AcademicPapers
+from spaceship_environment import AcademicPapers, GravityCap
 
 game = SpaceshipEnvironment(
-    n_planets=5,
+    default_settings_from=AcademicPapers.LearningModelBasedPlanningFromScratch,
+    n_planets=3,
     n_actions_per_episode=3,
     store_episode_as_gif=True,
-    render_window_size=500
+    render_window_size=400,
+    implicit_euler=True,
+    euler_scale=1,
+    render_after_each_step=True
 )
 
 game.reset()
-game.render()
 
 action_required = False
 
 while True:
-    game.render()
-    time.sleep(0.05)
 
-    magnitude = 50000
+    magnitude = 0
 
     if action_required:
         observation, reward, done, _ = game.step([np.random.uniform(-magnitude, magnitude), np.random.uniform(-magnitude, magnitude)])
@@ -28,8 +29,5 @@ while True:
 
         action_required = observation["action_required"]
 
-    game.render()
-
     if done:
         game.reset()
-        game.render()

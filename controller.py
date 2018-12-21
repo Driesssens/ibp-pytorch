@@ -12,6 +12,6 @@ class Controller(torch.nn.Module):
             final_relu=False
         )
 
-    def forward(self, state_vector, history_embedding):
-        action = self.neural_net(tensor_from(state_vector, history_embedding))
+    def forward(self, ship, planets, history_embedding):
+        action = self.neural_net(tensor_from(ship.encode_state(), *[planet.encode_state() for planet in planets], history_embedding))
         return action

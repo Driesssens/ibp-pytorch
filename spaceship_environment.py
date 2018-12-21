@@ -7,6 +7,8 @@ from pyglet.gl import *
 import os
 import imageio
 from datetime import datetime
+import time
+import copy
 
 
 class AcademicPapers(Enum):
@@ -32,8 +34,8 @@ SETTINGS_FROM_PAPERS = {
     AcademicPapers.LearningModelBasedPlanningFromScratch: {
         "n_actions_per_episode": 3,
         "euler_method_step_size": 0.05,
-        "gravitational_constant": "UNKNOWN",  # todo: ???
-        "damping_constant": "UNKNOWN",  # todo: ???
+        "gravitational_constant": 10,  # I've guessed this value as the paper doesn't mention it
+        "damping_constant": 0.1,  # I've guessed this value as the paper doesn't mention it
         "fuel_price": 0.0002,
         "fuel_cost_threshold": 8,
         "agent_ship_random_mass_interval": (0.004, 0.36),
@@ -44,6 +46,13 @@ SETTINGS_FROM_PAPERS = {
         "sun_random_radial_distance_interval": None
     }
 }
+
+
+class GravityCap(Enum):
+    No = 1
+    Low = 2
+    High = 3
+
 
 DEFAULT = object()  # Set init argument to DEFAULT to get setting from the chosen paper's experimental setup
 
@@ -58,11 +67,11 @@ class SpaceshipEnvironment(gym.Env):
     Observation:
         Dict(3) {
             'action_required' (boolean): Whether this is a step in which the agent can execute an action, i.e. fire the ships thrusters. When False, actions passed to step() will be ignored.
-            'agent_ship' (`AgentShip` object): The current state of the agent ship.
+            'agent_ship' (`Ship` object): The current state of the agent ship.
             'planets' (list of `Planet` objects: The current state of the planets.
         }
 
-        You can get Numpy vector representations with `AgentShip.encode_as_vector()` and `Planet.encode_as_vector()`.
+        You can get Numpy vector representations with `Ship.encode_as_vector()` and `Planet.encode_as_vector()`.
 
     Actions:
         Continuous(2) [
@@ -96,11 +105,10 @@ class SpaceshipEnvironment(gym.Env):
 
     def __init__(self,
                  n_planets,
-                 default_settings_from=AcademicPapers.MetacontrolForAdaptiveImaginationBasedOptimization,
+                 default_settings_from=AcademicPapers.LearningModelBasedPlanningFromScratch,
                  n_actions_per_episode=DEFAULT,
                  n_steps_per_action=12,
                  euler_method_step_size=DEFAULT,
-                 euler_method_step_resolution_scale=1,
                  gravitational_constant=DEFAULT,
                  damping_constant=DEFAULT,
                  fuel_price=DEFAULT,
@@ -111,9 +119,14 @@ class SpaceshipEnvironment(gym.Env):
                  planets_random_radial_distance_interval=DEFAULT,
                  sun_mass=DEFAULT,
                  sun_random_radial_distance_interval=DEFAULT,
+                 cap_gravity=GravityCap.Low,
                  render_window_size=900,
                  store_episode_as_gif=False,
-                 gif_file_name=""):
+                 gif_file_name="",
+                 render_after_each_step=False,
+                 n_seconds_sleep_per_render=0.05,
+                 euler_scale=1,
+                 implicit_euler=False):
         """
         Args:
             n_planets (int): The number of planets randomly positioned in each episode.
@@ -153,7 +166,8 @@ class SpaceshipEnvironment(gym.Env):
         self.lowest_zoom_factor_this_episode = None
 
         # A list of lists of xy-positions: one list for every `n_steps_per_action` steps. For rendering the ship's trajectory through space.
-        self.past_agent_ship_positions = None
+        self.past_ship_trajectories = None
+        self.imagined_ship_trajectories = None
 
         # Determines how zoomed out the rendering initially is.
         self.minimally_visible_world_size = 2.5 * max([
@@ -179,7 +193,7 @@ class SpaceshipEnvironment(gym.Env):
         self.i_episode = -1
 
     def reset(self):
-        self.agent_ship = AgentShip(
+        self.agent_ship = Ship(
             random_mass_interval=self.agent_ship_random_mass_interval,
             random_radial_distance_interval=self.agent_ship_random_radial_distance_interval
         )
@@ -203,14 +217,19 @@ class SpaceshipEnvironment(gym.Env):
 
         self.i_step = 0
         self.lowest_zoom_factor_this_episode = 1
-        self.past_agent_ship_positions = []
+        self.past_ship_trajectories = []
+        self.imagined_ship_trajectories = []
         self.episode_cumulative_loss = 0
 
-        self.i_episode += 1
+        return self.observation(True)
 
-        return self.observation()
+    def observation(self, increase_episode=False):
+        if self.render_after_each_step:
+            self.render()
 
-    def observation(self):
+        if increase_episode:
+            self.i_episode += 1
+
         return {
             'action_required': self.first_step_of_action(),
             'agent_ship': self.agent_ship,
@@ -223,21 +242,39 @@ class SpaceshipEnvironment(gym.Env):
             xy_thrust_force = np.zeros(2)
         else:
             # This is the first timestep after a new action; initialize the list of past positions for trajectory visualization.
-            self.past_agent_ship_positions.append([(self.agent_ship.x, self.agent_ship.y)])
+            self.past_ship_trajectories.append([(self.agent_ship.x, self.agent_ship.y)])
 
-        xy_gravitational_forces = [
-            self.gravitational_constant * planet.mass * self.agent_ship.mass
-            / np.linalg.norm(self.agent_ship.xy_position - planet.xy_position) ** 3
-            * (planet.xy_position - self.agent_ship.xy_position)
-            for planet in self.planets
-        ]
+        for _ in range(self.euler_scale):
+            xy_gravitational_forces = []
 
-        xy_acceleration = (sum(xy_gravitational_forces) - self.damping_constant * self.agent_ship.xy_velocity + xy_thrust_force) / self.agent_ship.mass
+            for planet in self.planets:
+                pretended_radius = np.linalg.norm(self.agent_ship.xy_position - planet.xy_position)
+                pretended_xy_distance = planet.xy_position - self.agent_ship.xy_position
 
-        self.agent_ship.xy_position += self.euler_method_step_size / self.euler_method_step_resolution_scale * self.agent_ship.xy_velocity
-        self.agent_ship.xy_velocity += self.euler_method_step_size / self.euler_method_step_resolution_scale * xy_acceleration
+                if self.cap_gravity is not GravityCap.No:
+                    minimal_radius = planet.mass
 
-        self.past_agent_ship_positions[-1].append((self.agent_ship.x, self.agent_ship.y))
+                    if self.cap_gravity is GravityCap.High:
+                        minimal_radius += self.agent_ship.mass * 2.8
+
+                    if pretended_radius < minimal_radius:
+                        pretended_radius = minimal_radius
+
+                        actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
+                        pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
+
+                xy_gravitational_forces.append(self.gravitational_constant * planet.mass * self.agent_ship.mass * pretended_xy_distance / pretended_radius ** 3)
+
+            xy_acceleration = (sum(xy_gravitational_forces) - self.damping_constant * self.agent_ship.xy_velocity + xy_thrust_force) / self.agent_ship.mass
+
+            if self.implicit_euler:
+                self.agent_ship.xy_velocity += self.euler_method_step_size / self.euler_scale * xy_acceleration
+                self.agent_ship.xy_position += self.euler_method_step_size / self.euler_scale * self.agent_ship.xy_velocity
+            else:
+                self.agent_ship.xy_position += self.euler_method_step_size / self.euler_scale * self.agent_ship.xy_velocity
+                self.agent_ship.xy_velocity += self.euler_method_step_size / self.euler_scale * xy_acceleration
+
+            self.past_ship_trajectories[-1].append((self.agent_ship.x, self.agent_ship.y))
 
         self.i_step += 1
 
@@ -281,14 +318,29 @@ class SpaceshipEnvironment(gym.Env):
             for planet in self.planets:
                 arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(planet.mass), arcade.color.RED)
 
-            for i_trajectory, trajectory in enumerate(self.past_agent_ship_positions):
+            for i_trajectory, trajectory in enumerate(self.imagined_ship_trajectories):
+                for i_from in range(len(trajectory) - 1):
+                    i_to = i_from + 1
+
+                    darkness = (i_trajectory + 1) / len(self.imagined_ship_trajectories)
+
+                    arcade.draw_line(
+                        self.screen_position(trajectory[i_from][0]),
+                        self.screen_position(trajectory[i_from][1]),
+                        self.screen_position(trajectory[i_to][0]),
+                        self.screen_position(trajectory[i_to][1]),
+                        (int(darkness * 255), int(darkness * 0), int(darkness * 255)),
+                        max(1, self.screen_size(self.agent_ship.mass))
+                    )
+
+            for i_trajectory, trajectory in enumerate(self.past_ship_trajectories):
                 # Draw the agent ship's past trajectory this episode as a green trailing line. Green gets lighter after each successive action
 
                 for i_from in range(len(trajectory) - 1):
                     i_to = i_from + 1
 
                     extra_darkness = 1 if i_from == 0 else 0  # This part of the trajectory is before the new action kicks in, so needs darker shade of green
-                    darkness = 0 + 1 * (i_trajectory + 1 - extra_darkness) / self.n_actions_per_episode
+                    darkness = (i_trajectory + 1 - extra_darkness) / self.n_actions_per_episode
 
                     arcade.draw_line(
                         self.screen_position(trajectory[i_from][0]),
@@ -309,6 +361,8 @@ class SpaceshipEnvironment(gym.Env):
             if self.done():
                 self.store_gif_animation()
 
+        time.sleep(self.n_seconds_sleep_per_render)
+
     def seed(self, given_seed=None):
         if given_seed is None:
             np.random.seed()
@@ -322,9 +376,16 @@ class SpaceshipEnvironment(gym.Env):
         else:
             raise ValueError("Argument given_seed needs to be None, a tuple, or an integer.")
 
+    @property
+    def i_action(self):
+        return self.i_step // self.n_steps_per_action
+
     def first_step_of_action(self):
         # Indicates whether this is the first of `n_steps_per_action`, so thrusters may be fired and the agent needs to select an action.
         return self.i_step % self.n_steps_per_action == 0
+
+    def last_action_of_episode(self):
+        return self.i_action == self.n_actions_per_episode - 1
 
     def done(self):
         # Indicates whether the current episode is finished.
@@ -337,6 +398,12 @@ class SpaceshipEnvironment(gym.Env):
     def screen_size(self, mass):
         # Gives screen pixel size according to object's mass.
         return mass * self.mass_to_pixel_ratio * self.zoom_factor()
+
+    def update_zoom_factor(self, x, y):
+        furthest_point = max(abs(x), abs(y))
+        border = self.minimally_visible_world_radius - self.minimally_visible_world_radius * 0.1
+        zoom_factor = min(self.lowest_zoom_factor_this_episode, border / furthest_point)
+        self.lowest_zoom_factor_this_episode = zoom_factor
 
     def zoom_factor(self):
         # Zoom factor to ensure the agent ship is always visible on screen.
@@ -351,7 +418,12 @@ class SpaceshipEnvironment(gym.Env):
         if not os.path.exists('temporary_gif_frames\{}ep{}'.format(self.gif_file_name, self.i_episode)):
             os.makedirs('temporary_gif_frames\{}ep{}'.format(self.gif_file_name, self.i_episode))
 
-        pyglet.image.get_buffer_manager().get_color_buffer().save('temporary_gif_frames\{}ep{}\st{:03}.png'.format(self.gif_file_name, self.i_episode, self.i_step))
+        pyglet.image.get_buffer_manager().get_color_buffer().save('temporary_gif_frames\{}ep{}\st{:03}-{:03}.png'.format(
+            self.gif_file_name,
+            self.i_episode,
+            self.i_step,
+            len([position for trajectory in self.imagined_ship_trajectories for position in trajectory])
+        ))
 
     def store_gif_animation(self):
         file_names = sorted(os.listdir('temporary_gif_frames\{}ep{}'.format(self.gif_file_name, self.i_episode)))
@@ -361,6 +433,20 @@ class SpaceshipEnvironment(gym.Env):
             os.makedirs('gifs')
 
         imageio.mimsave('gifs\{}ep{}-loss_{:.2f}.gif'.format(self.gif_file_name, self.i_episode, self.episode_cumulative_loss), frames)
+
+    def add_imagined_ship_trajectory(self, imagined_ship_trajectory):
+        if self.render_after_each_step:
+            self.imagined_ship_trajectories.append([])
+
+            for position in imagined_ship_trajectory:
+                self.imagined_ship_trajectories[-1].append(position)
+                self.update_zoom_factor(position[0], position[1])
+                self.render()
+        else:
+            self.imagined_ship_trajectories.append(imagined_ship_trajectory)
+
+            for position in imagined_ship_trajectory:
+                self.update_zoom_factor(position[0], position[1])
 
 
 class SpaceObject:
@@ -378,11 +464,11 @@ class SpaceObject:
         else:
             raise ValueError("Either random_mass_interval or mass must be set.")
 
-        if random_radial_distance_interval:
+        if random_radial_distance_interval is not None:
             angle = np.pi * np.random.uniform(0, 2)
             radius = np.random.uniform(random_radial_distance_interval[0], random_radial_distance_interval[1])
             self.xy_position = np.array(polar2cartesian(angle, radius))
-        elif xy_position:
+        elif xy_position is not None:
             self.xy_position = xy_position
         else:
             raise ValueError("Either random_radial_distance_interval or xy_position must be set.")
@@ -414,8 +500,14 @@ class SpaceObject:
     def y(self):
         return self.xy_position[1]
 
+    def __deepcopy__(self, memodict={}):
+        new = copy.copy(self)
+        new.xy_position = np.copy(self.xy_position)
+        new.xy_velocity = np.copy(self.xy_velocity)
+        return new
 
-class AgentShip(SpaceObject):
+
+class Ship(SpaceObject):
     type = SpaceObject.Types.AGENT_SHIP
 
 
