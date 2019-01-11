@@ -2,3 +2,5 @@ gifs/
 __pycache__/
 .idea/
 storage/
+demo/
+storage_old/

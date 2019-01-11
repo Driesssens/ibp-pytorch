@@ -9,6 +9,8 @@ import imageio
 from datetime import datetime
 import time
 import copy
+from typing import List
+from utilities import tensor_from
 
 
 class AcademicPapers(Enum):
@@ -157,8 +159,8 @@ class SpaceshipEnvironment(gym.Env):
             else:
                 self.__setattr__(parameter, value)
 
-        self.agent_ship = None
-        self.planets = None
+        self.agent_ship: Ship = None
+        self.planets: List[Planet] = None
         self.i_step = None
         self.episode_cumulative_loss = None
 
@@ -168,6 +170,7 @@ class SpaceshipEnvironment(gym.Env):
         # A list of lists of xy-positions: one list for every `n_steps_per_action` steps. For rendering the ship's trajectory through space.
         self.past_ship_trajectories = None
         self.imagined_ship_trajectories = None
+        self.estimated_ship_trajectories = None
 
         # Determines how zoomed out the rendering initially is.
         self.minimally_visible_world_size = 2.5 * max([
@@ -219,6 +222,7 @@ class SpaceshipEnvironment(gym.Env):
         self.lowest_zoom_factor_this_episode = 1
         self.past_ship_trajectories = []
         self.imagined_ship_trajectories = []
+        self.estimated_ship_trajectories = []
         self.episode_cumulative_loss = 0
 
         return self.observation(True)
@@ -315,8 +319,11 @@ class SpaceshipEnvironment(gym.Env):
 
             arcade.draw_lrtb_rectangle_filled(0, self.render_window_size, self.render_window_size, 0, arcade.color.BLACK)  # Otherwise GIF file will have transparent background
 
+            arcade.draw_line(self.screen_position(-1), self.screen_position(0), self.screen_position(1), self.screen_position(0), arcade.color.BLUE, 1)
+            arcade.draw_line(self.screen_position(0), self.screen_position(-1), self.screen_position(0), self.screen_position(1), arcade.color.BLUE, 1)
+
             for planet in self.planets:
-                arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(planet.mass), arcade.color.RED)
+                arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(planet.mass, planet=True), arcade.color.RED)
 
             for i_trajectory, trajectory in enumerate(self.imagined_ship_trajectories):
                 for i_from in range(len(trajectory) - 1):
@@ -349,6 +356,30 @@ class SpaceshipEnvironment(gym.Env):
                         self.screen_position(trajectory[i_to][1]),
                         (int(darkness * 0), int(darkness * 255), int(darkness * 0)),
                         max(1, self.screen_size(self.agent_ship.mass))
+                    )
+
+            for i_trajectory, trajectory in enumerate(self.estimated_ship_trajectories):
+                for i_from in range(len(trajectory) - 1):
+                    i_to = i_from + 1
+
+                    darkness = (i_trajectory + 1) / self.n_actions_per_episode
+
+                    arcade.draw_circle_filled(
+                        # self.screen_position(trajectory[i_from][0]),
+                        # self.screen_position(trajectory[i_from][1]),
+                        self.screen_position(trajectory[i_to][0]),
+                        self.screen_position(trajectory[i_to][1]),
+                        max(1, self.screen_size(self.agent_ship.mass)) / 2 + 1,
+                        (int(darkness * 0), int(darkness * 0), int(darkness * 0)),
+                    )
+
+                    arcade.draw_circle_filled(
+                        # self.screen_position(trajectory[i_from][0]),
+                        # self.screen_position(trajectory[i_from][1]),
+                        self.screen_position(trajectory[i_to][0]),
+                        self.screen_position(trajectory[i_to][1]),
+                        max(1, self.screen_size(self.agent_ship.mass)) / 2,
+                        (int(darkness * 0), int(darkness * 255), int(darkness * 0)),
                     )
 
             arcade.draw_circle_filled(self.screen_position(self.agent_ship.x), self.screen_position(self.agent_ship.y), max(1, self.screen_size(self.agent_ship.mass)), arcade.color.WHITE)
@@ -395,9 +426,9 @@ class SpaceshipEnvironment(gym.Env):
         # Converts environment x and y positions to pixel positions on screen for rendering.
         return position / self.minimally_visible_world_radius * self.zoom_factor() * self.render_window_radius + self.render_window_radius
 
-    def screen_size(self, mass):
+    def screen_size(self, mass, planet=False):
         # Gives screen pixel size according to object's mass.
-        return mass * self.mass_to_pixel_ratio * self.zoom_factor()
+        return mass * self.mass_to_pixel_ratio * self.zoom_factor() * (1 if planet else 0.5)
 
     def update_zoom_factor(self, x, y):
         furthest_point = max(abs(x), abs(y))
@@ -412,6 +443,9 @@ class SpaceshipEnvironment(gym.Env):
         zoom_factor = min(self.lowest_zoom_factor_this_episode, border / furthest_point)
         self.lowest_zoom_factor_this_episode = zoom_factor
         return zoom_factor
+
+    def planet_state_vector(self):
+        return np.concatenate([planet.encode_state() for planet in self.planets])
 
     def store_gif_frame(self):
         # Stores GIF frames to be compiled to one animated GIF after episode is done. You can delete the temporary_gif_frames folder afterwards if you don't need the frames.
@@ -435,15 +469,34 @@ class SpaceshipEnvironment(gym.Env):
         imageio.mimsave('gifs\{}ep{}-loss_{:.2f}.gif'.format(self.gif_file_name, self.i_episode, self.episode_cumulative_loss), frames)
 
     def add_imagined_ship_trajectory(self, imagined_ship_trajectory):
+        self.add_estimated_or_imagined_ship_trajectory(self.imagined_ship_trajectories, imagined_ship_trajectory)
+
+        # if self.render_after_each_step:
+        #     self.imagined_ship_trajectories.append([])
+        #
+        #     for position in imagined_ship_trajectory:
+        #         self.imagined_ship_trajectories[-1].append(position)
+        #         self.update_zoom_factor(position[0], position[1])
+        #         self.render()
+        # else:
+        #     self.imagined_ship_trajectories.append(imagined_ship_trajectory)
+        #
+        #     for position in imagined_ship_trajectory:
+        #         self.update_zoom_factor(position[0], position[1])
+
+    def add_estimated_ship_trajectory(self, estimated_ship_trajectory):
+        self.add_estimated_or_imagined_ship_trajectory(self.estimated_ship_trajectories, estimated_ship_trajectory)
+
+    def add_estimated_or_imagined_ship_trajectory(self, list_to_add_to, imagined_ship_trajectory):
         if self.render_after_each_step:
-            self.imagined_ship_trajectories.append([])
+            list_to_add_to.append([])
 
             for position in imagined_ship_trajectory:
-                self.imagined_ship_trajectories[-1].append(position)
+                list_to_add_to[-1].append(position)
                 self.update_zoom_factor(position[0], position[1])
                 self.render()
         else:
-            self.imagined_ship_trajectories.append(imagined_ship_trajectory)
+            list_to_add_to.append(imagined_ship_trajectory)
 
             for position in imagined_ship_trajectory:
                 self.update_zoom_factor(position[0], position[1])
@@ -486,8 +539,11 @@ class SpaceObject:
     def encode_dynamic_properties(self):
         return np.concatenate((self.xy_position, self.xy_velocity))
 
-    def encode_state(self):
-        return np.concatenate((self.encode_static_properties(), self.encode_dynamic_properties()))
+    def encode_state(self, including_mass=True):
+        if including_mass:
+            return np.concatenate((self.encode_static_properties(), self.encode_dynamic_properties()))
+        else:
+            return self.encode_dynamic_properties()
 
     def encode_as_vector(self):
         return np.concatenate((self.encode_type_one_hot(), self.encode_state()))
@@ -502,9 +558,25 @@ class SpaceObject:
 
     def __deepcopy__(self, memodict={}):
         new = copy.copy(self)
-        new.xy_position = np.copy(self.xy_position)
-        new.xy_velocity = np.copy(self.xy_velocity)
+
+        if isinstance(self.xy_position, np.ndarray) and isinstance(self.xy_velocity, np.ndarray):
+            new.xy_position = np.copy(self.xy_position)
+            new.xy_velocity = np.copy(self.xy_velocity)
+        else:
+            new.xy_position = self.xy_position.clone()
+            new.xy_velocity = self.xy_velocity.clone()
+
         return new
+
+    def detach_and_to_numpy(self):
+        if not (isinstance(self.xy_position, np.ndarray) and isinstance(self.xy_velocity, np.ndarray)):
+            self.xy_position = self.xy_position.detach().numpy()
+            self.xy_velocity = self.xy_velocity.detach().numpy()
+
+    def wrap_in_tensors(self):
+        if isinstance(self.xy_position, np.ndarray) and isinstance(self.xy_velocity, np.ndarray):
+            self.xy_position = tensor_from(self.xy_position)
+            self.xy_velocity = tensor_from(self.xy_velocity)
 
 
 class Ship(SpaceObject):

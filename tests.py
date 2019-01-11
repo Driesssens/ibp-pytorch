@@ -104,7 +104,7 @@ def test_forward_ibp(evaluate_model=None):
         environment.reset()
 
         if evaluate_model is None:
-            agent.new_episode()
+            agent.finish_episode()
 
         for i_action in range(n_actions_per_episode):
             imagined_trajectories = agent.act(environment)
@@ -117,26 +117,6 @@ def test_forward_ibp(evaluate_model=None):
 
     if evaluate_model is None:
         agent.store_imaginator()
-
-
-def test_new_style():
-    experiment_name = "test_new_style_2_faster2_stable-1400-2"
-
-    n_planets = 3
-
-    environment = SpaceshipEnvironment(n_planets, render_after_each_step=True)
-    agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=False, max_imaginations_per_action=1, n_episodes_per_batch=40)
-    agent.load("test_new_style_2_faster2_stable-1400-2")
-
-    for i_episode in range(14000):
-        environment.reset()
-
-        for i_action in range(environment.n_actions_per_episode):
-            agent.act()
-
-        # if i_episode == 8000:
-        #     environment.render_after_each_step = True
-    # agent.store()
 
 
 def analyze_moving_planets(name):
@@ -182,7 +162,96 @@ def analyze_moving_planets(name):
                 environment.update_zoom_factor(planet.x, planet.y)
 
 
-# test_forward_manager()
-# test_forward_imaginator()
-# test_forward_memory()
-test_new_style()
+def evalu(name):
+    print("evaluate")
+    experiment_name = name
+    print("system: {}".format(name))
+
+    n_planets = 3
+
+    environment = SpaceshipEnvironment(n_planets, render_after_each_step=True, agent_ship_random_mass_interval=(0.25, 0.25))
+    agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=False, max_imaginations_per_action=2, n_episodes_per_batch=500, train=False,
+                                    use_controller_and_memory=True, dummy_action_magnitude_interval=(0, 10), use_ship_mass=True)
+    agent.imaginator.action_normalization_factor = 0.5
+    agent.load(name)
+
+    for i_episode in range(14000):
+        environment.reset()
+
+        for i_action in range(environment.n_actions_per_episode):
+            agent.act()
+
+        agent.finish_episode()
+
+
+def test_new_style():
+    print("test_imaginator_fixed_mass")
+    experiment_name = "test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25"
+    print("experiment: {}".format(experiment_name))
+
+    n_planets = 3
+
+    environment = SpaceshipEnvironment(n_planets, render_after_each_step=False, agent_ship_random_mass_interval=(0.25, 0.25))
+    agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=True, max_imaginations_per_action=0, n_episodes_per_batch=100, train=True, use_controller_and_memory=False, dummy_action_magnitude_interval=(0, 10), use_ship_mass=False)
+    agent.load(experiment_name)
+    agent.imaginator.action_normalization_factor = 0.5
+
+    # for g in agent.imaginator.optimizer.param_groups:
+    #     g['lr'] = 0.002
+
+    for i_episode in range(50000):
+        environment.reset()
+
+        for i_action in range(environment.n_actions_per_episode):
+            agent.act()
+
+        agent.finish_episode()
+
+
+def big_test():
+    print("new system on bootstrapped EM")
+    # print("EM: {}".format("test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25"))
+
+    experiment_name = "new-system_bootstrapped_batch250_imag-2_EMlr0.001_others-default_no-reg_no-mass-0.25_fuel-0.0004"
+
+    n_planets = 3
+
+    environment = SpaceshipEnvironment(n_planets, render_after_each_step=False, agent_ship_random_mass_interval=(0.25, 0.25))
+    agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=True, max_imaginations_per_action=2, n_episodes_per_batch=250, train=True, use_controller_and_memory=True, use_ship_mass=False, fuel_price=0.0004, refresh_each_batch=False)
+    agent.load(experiment_name)
+    # agent.imaginator.load("test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25")
+    agent.imaginator.action_normalization_factor = 0.5
+
+    for i_episode in range(100000):
+        environment.reset()
+
+        for i_action in range(environment.n_actions_per_episode):
+            agent.act()
+
+        agent.finish_episode()
+
+
+def bug_test():
+    print("bugtest")
+
+    experiment_name = "bugtest"
+
+    n_planets = 3
+
+    environment = SpaceshipEnvironment(n_planets, render_after_each_step=False, agent_ship_random_mass_interval=(0.25, 0.25))
+    agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=False, max_imaginations_per_action=2, n_episodes_per_batch=200, train=True, use_controller_and_memory=True)
+    agent.imaginator.action_normalization_factor = 0.5
+
+    for i_episode in range(100000):
+        environment.reset()
+
+        for i_action in range(environment.n_actions_per_episode):
+            agent.act()
+
+        agent.finish_episode()
+
+
+# test_new_style()
+# evalu("full-system_pre-trained_batch200_imag-2_EMlr0.001_others-default_no-reg_fixedmass-0.25")
+big_test()
+# bug_test()
