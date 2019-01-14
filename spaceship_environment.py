@@ -1,16 +1,21 @@
 import gym
 from enum import Enum
 import numpy as np
-import arcade
-import pyglet
-from pyglet.gl import *
 import os
-import imageio
 from datetime import datetime
 import time
 import copy
 from typing import List
 from utilities import tensor_from
+import torch
+
+import sys
+
+if sys.platform == 'win32':
+    import imageio
+    import pyglet
+    from pyglet.gl import *
+    import arcade
 
 
 class AcademicPapers(Enum):
@@ -159,8 +164,8 @@ class SpaceshipEnvironment(gym.Env):
             else:
                 self.__setattr__(parameter, value)
 
-        self.agent_ship: Ship = None
-        self.planets: List[Planet] = None
+        self.agent_ship = None
+        self.planets = None
         self.i_step = None
         self.episode_cumulative_loss = None
 
@@ -488,18 +493,15 @@ class SpaceshipEnvironment(gym.Env):
         self.add_estimated_or_imagined_ship_trajectory(self.estimated_ship_trajectories, estimated_ship_trajectory)
 
     def add_estimated_or_imagined_ship_trajectory(self, list_to_add_to, imagined_ship_trajectory):
-        if self.render_after_each_step:
-            list_to_add_to.append([])
+        list_to_add_to.append([])
 
-            for position in imagined_ship_trajectory:
-                list_to_add_to[-1].append(position)
-                self.update_zoom_factor(position[0], position[1])
+        for state in imagined_ship_trajectory:
+            state.detach_and_to_numpy()
+            list_to_add_to[-1].append(state.xy_position)
+            self.update_zoom_factor(state.xy_position[0], state.xy_position[1])
+
+            if self.render_after_each_step:
                 self.render()
-        else:
-            list_to_add_to.append(imagined_ship_trajectory)
-
-            for position in imagined_ship_trajectory:
-                self.update_zoom_factor(position[0], position[1])
 
 
 class SpaceObject:
@@ -537,16 +539,25 @@ class SpaceObject:
         return np.array([self.mass])
 
     def encode_dynamic_properties(self):
-        return np.concatenate((self.xy_position, self.xy_velocity))
+        if self.state_is_tensor():
+            return torch.cat((self.xy_position, self.xy_velocity))
+        else:
+            return np.concatenate((self.xy_position, self.xy_velocity))
 
     def encode_state(self, including_mass=True):
         if including_mass:
-            return np.concatenate((self.encode_static_properties(), self.encode_dynamic_properties()))
+            if self.state_is_tensor():
+                return torch.cat((self.encode_static_properties(), self.encode_dynamic_properties()))
+            else:
+                return np.concatenate((self.encode_static_properties(), self.encode_dynamic_properties()))
         else:
             return self.encode_dynamic_properties()
 
     def encode_as_vector(self):
         return np.concatenate((self.encode_type_one_hot(), self.encode_state()))
+
+    def state_is_tensor(self):
+        return not (isinstance(self.xy_position, np.ndarray) and isinstance(self.xy_velocity, np.ndarray))
 
     @property
     def x(self):
@@ -559,12 +570,12 @@ class SpaceObject:
     def __deepcopy__(self, memodict={}):
         new = copy.copy(self)
 
-        if isinstance(self.xy_position, np.ndarray) and isinstance(self.xy_velocity, np.ndarray):
-            new.xy_position = np.copy(self.xy_position)
-            new.xy_velocity = np.copy(self.xy_velocity)
-        else:
+        if self.state_is_tensor():
             new.xy_position = self.xy_position.clone()
             new.xy_velocity = self.xy_velocity.clone()
+        else:
+            new.xy_position = np.copy(self.xy_position)
+            new.xy_velocity = np.copy(self.xy_velocity)
 
         return new
 

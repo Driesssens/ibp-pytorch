@@ -209,10 +209,10 @@ def test_new_style():
 
 
 def big_test():
-    print("new system on bootstrapped EM")
+    print("more backprop on bootstrapped EM")
     # print("EM: {}".format("test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25"))
 
-    experiment_name = "new-system_bootstrapped_batch250_imag-2_EMlr0.001_others-default_no-reg_no-mass-0.25_fuel-0.0004"
+    experiment_name = "morebackprop_bootstrapped_batch200_imag-2_EMlr0.001_others-default_no-reg_no-mass-0.25_fuel-0.0004"
 
     n_planets = 3
 
@@ -220,7 +220,6 @@ def big_test():
     agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=True, max_imaginations_per_action=2, n_episodes_per_batch=250, train=True, use_controller_and_memory=True, use_ship_mass=False, fuel_price=0.0004, refresh_each_batch=False)
     agent.load(experiment_name)
     # agent.imaginator.load("test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25")
-    agent.imaginator.action_normalization_factor = 0.5
 
     for i_episode in range(100000):
         environment.reset()
@@ -252,6 +251,6 @@ def bug_test():
 
 
 # test_new_style()
-# evalu("full-system_pre-trained_batch200_imag-2_EMlr0.001_others-default_no-reg_fixedmass-0.25")
+# evalu("5_full-system_pre-trained_batch200_imag-2_EMlr0.001_others-default_no-reg_fixedmass-0.25")
 big_test()
 # bug_test()

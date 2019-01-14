@@ -13,7 +13,6 @@ class Imaginator(torch.nn.Module):
                  object_module_layer_sizes=(100,),
                  velocity_normalization_factor=7.5,
                  action_normalization_factor=0.5,
-                 # learning_rate=0.003,
                  learning_rate=0.001,
                  max_gradient_norm=10,
                  ):
@@ -44,7 +43,7 @@ class Imaginator(torch.nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), learning_rate, weight_decay=0)
         self.max_gradient_norm = max_gradient_norm
 
-    def imagine(self, ship: Ship, planets: List[Planet], action):
+    def imagine(self, ship: Ship, planets: List[Planet], action, differentiable_trajectory=False):
         imagined_ship_trajectory = [deepcopy(ship)]
         imagined_ship_trajectory[-1].wrap_in_tensors()
 
@@ -63,12 +62,15 @@ class Imaginator(torch.nn.Module):
             imagined_state.xy_velocity = imagined_velocity
             imagined_ship_trajectory.append(imagined_state)
 
-            current_state.detach_and_to_numpy()
+            if not differentiable_trajectory:
+                current_state.detach_and_to_numpy()
 
         target_position = torch.zeros(2)
         imagined_loss = torch.nn.functional.mse_loss(imagined_ship_trajectory[-1].xy_position.unsqueeze(0), target_position.unsqueeze(0))
 
-        imagined_ship_trajectory[-1].detach_and_to_numpy()
+        if not differentiable_trajectory:
+            imagined_ship_trajectory[-1].detach_and_to_numpy()
+
         return imagined_ship_trajectory, imagined_loss
 
     def forward(self, ship: Ship, planets: List[Planet], action):
