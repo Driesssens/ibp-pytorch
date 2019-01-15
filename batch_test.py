@@ -8,6 +8,7 @@ import torch
 from spaceship_environment import AcademicPapers
 import time
 
+
 def big_test():
     print("batch test")
     # print("EM: {}".format("test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25"))
@@ -28,3 +29,6 @@ def big_test():
             agent.act()
 
         agent.finish_episode()
+
+
+big_test()
