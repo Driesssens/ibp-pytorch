@@ -19,7 +19,7 @@ def big_test():
 
     environment = SpaceshipEnvironment(n_planets, render_after_each_step=False, agent_ship_random_mass_interval=(0.25, 0.25))
     agent = ImaginationBasedPlanner(environment, experiment_name=experiment_name, tensorboard=True, max_imaginations_per_action=2, n_episodes_per_batch=250, train=True, use_controller_and_memory=True, use_ship_mass=False, fuel_price=0.0004, refresh_each_batch=False)
-    # agent.load(experiment_name)
+    agent.load(experiment_name)
     # agent.imaginator.load("test_imaginator_dummy-action-0-10_actnorm-0.5_lr-0.001_batch-100_reg0_no-mass-0.25")
 
     for i_episode in range(100000):
