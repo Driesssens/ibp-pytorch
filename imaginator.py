@@ -2,6 +2,7 @@ from utilities import *
 from spaceship_environment import SpaceshipEnvironment, Ship, Planet
 from typing import List
 from copy import deepcopy
+import os
 
 
 class Imaginator(torch.nn.Module):
@@ -136,12 +137,12 @@ class Imaginator(torch.nn.Module):
         self.batch_task_cost = Accumulator()
 
     def store(self):
-        torch.save(self.state_dict(), self.parent.experiment_folder + '\imaginator_state_dict')
-        torch.save(self.optimizer.state_dict(), self.parent.experiment_folder + '\imaginator_optimizer_state_dict')
+        torch.save(self.state_dict(), os.path.join(self.parent.experiment_folder, 'imaginator_state_dict'))
+        torch.save(self.optimizer.state_dict(), os.path.join(self.parent.experiment_folder, 'imaginator_optimizer_state_dict'))
 
     def load(self, experiment_name):
-        self.load_state_dict(torch.load("storage\{}\imaginator_state_dict".format(experiment_name)))
+        self.load_state_dict(torch.load(os.path.join("storage", experiment_name, "imaginator_state_dict")))
         try:
-            self.optimizer.load_state_dict(torch.load("storage\{}\imaginator_optimizer_state_dict".format(experiment_name)))
+            self.optimizer.load_state_dict(torch.load(os.path.join("storage", experiment_name, "imaginator_optimizer_state_dict")))
         except:
             pass

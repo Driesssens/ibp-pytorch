@@ -54,7 +54,7 @@ class ImaginationBasedPlanner:
         self.episode_metrics = defaultdict(int)
 
         self.experiment_name = experiment_name if experiment_name is not None else datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-        self.experiment_folder = 'storage\{}'.format(self.experiment_name)
+        self.experiment_folder = os.path.join('storage', self.experiment_name)
 
         if not os.path.exists(self.experiment_folder):
             os.makedirs(self.experiment_folder)
@@ -242,7 +242,7 @@ class ImaginationBasedPlanner:
             self.tensorboard_writer.add_scalar(name, value, self.i_episode)
 
     def store(self):
-        with open(self.experiment_folder + '\\training_status.json', 'w') as file:
+        with open(os.path.join(self.experiment_folder, 'training_status.json'), 'w') as file:
             json.dump(self.training_status, file)
 
         self.imaginator.store()
@@ -252,7 +252,7 @@ class ImaginationBasedPlanner:
 
     def load(self, experiment_name):
         try:
-            with open(self.experiment_folder + '\\training_status.json') as file:
+            with open(os.path.join(self.experiment_folder, 'training_status.json')) as file:
                 training_status = json.load(file)
                 self.i_episode = training_status['i_episode'] + 1
         except:

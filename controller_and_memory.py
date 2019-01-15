@@ -1,5 +1,6 @@
 from utilities import *
 from spaceship_environment import Ship
+import os
 
 
 class ControllerAndMemory:
@@ -40,14 +41,14 @@ class ControllerAndMemory:
         self.batch_fuel_loss = Accumulator()
 
     def store(self):
-        torch.save(self.controller.state_dict(), self.parent.experiment_folder + '\controller_state_dict')
-        torch.save(self.memory.state_dict(), self.parent.experiment_folder + '\memory_state_dict')
-        torch.save(self.optimizer.state_dict(), self.parent.experiment_folder + '\controller_and_memory_optimizer_state_dict')
+        torch.save(self.controller.state_dict(), os.path.join(self.parent.experiment_folder, 'controller_state_dict'))
+        torch.save(self.memory.state_dict(), os.path.join(self.parent.experiment_folder, 'memory_state_dict'))
+        torch.save(self.optimizer.state_dict(), os.path.join(self.parent.experiment_folder, 'controller_and_memory_optimizer_state_dict'))
 
     def load(self, experiment_name):
-        self.controller.load_state_dict(torch.load("storage\{}\controller_state_dict".format(experiment_name)))
-        self.memory.load_state_dict(torch.load("storage\{}\memory_state_dict".format(experiment_name)))
-        self.optimizer.load_state_dict(torch.load("storage\{}\controller_and_memory_optimizer_state_dict".format(experiment_name)))
+        self.controller.load_state_dict(torch.load(os.path.join("storage", experiment_name, "controller_state_dict")))
+        self.memory.load_state_dict(torch.load(os.path.join("storage", experiment_name, "memory_state_dict")))
+        self.optimizer.load_state_dict(torch.load(os.path.join("storage", experiment_name, "controller_and_memory_optimizer_state_dict")))
 
 
 class Controller(torch.nn.Module):
