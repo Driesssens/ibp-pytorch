@@ -72,7 +72,12 @@ class Imaginator(torch.nn.Module):
         if not differentiable_trajectory:
             imagined_ship_trajectory[-1].detach_and_to_numpy()
 
-        return imagined_ship_trajectory, imagined_loss
+        if self.parent.fuel_price == 0:
+            imagined_fuel_cost = tensor_from(0)
+        else:
+            imagined_fuel_cost = torch.clamp((torch.norm(action) - 8) * self.parent.fuel_price, min=0)
+
+        return imagined_ship_trajectory, imagined_loss, imagined_fuel_cost
 
     def forward(self, ship: Ship, planets: List[Planet], action):
         if self.parent.use_ship_mass:
@@ -104,7 +109,7 @@ class Imaginator(torch.nn.Module):
             self.batch_loss.add(loss)
 
     def evaluate(self, old_ship_state: Ship, planets: List[Planet], action, actual_new_ship_state: Ship):
-        estimated_trajectory, critic_evaluation = self.imagine(old_ship_state, planets, action)
+        estimated_trajectory, critic_evaluation, estimated_fuel_cost = self.imagine(old_ship_state, planets, action)
         imagined_final_position = estimated_trajectory[-1].xy_position
         actual_final_position = actual_new_ship_state.xy_position
 
@@ -114,11 +119,7 @@ class Imaginator(torch.nn.Module):
         task_cost = np.square(actual_final_position).mean()
         self.batch_task_cost.add(task_cost)
 
-        if self.parent.fuel_price == 0:
-            return estimated_trajectory, critic_evaluation, tensor_from(0)
-        else:
-            fuel_cost = torch.clamp((torch.norm(action) - 8) * self.parent.fuel_price, min=0)
-            return estimated_trajectory, critic_evaluation, fuel_cost
+        return estimated_trajectory, critic_evaluation, estimated_fuel_cost
 
     def finish_batch(self):
         mean_loss = self.batch_loss.average()

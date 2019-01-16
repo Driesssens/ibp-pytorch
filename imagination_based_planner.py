@@ -50,7 +50,6 @@ class ImaginationBasedPlanner:
         self.n_episodes_per_batch = n_episodes_per_batch
 
         self.i_episode = 0
-        self.i_action_of_episode = 0
         self.history_embedding = torch.randn(history_embedding_length)
         self.episode_metrics = defaultdict(int)
 
@@ -120,14 +119,15 @@ class ImaginationBasedPlanner:
             else:
                 imagined_action = self.dummy_action()
 
-            imagined_trajectory, imagined_loss = self.imaginator.imagine(
+            imagined_trajectory, imagined_loss, imagined_fuel_cost = self.imaginator.imagine(
                 last_imagined_ship_state,
                 self.environment.planets,
                 imagined_action,
                 differentiable_trajectory=True
             )
 
-            self.environment.add_imagined_ship_trajectory(imagined_trajectory)
+            if self.environment.render_after_each_step:
+                self.environment.add_imagined_ship_trajectory(imagined_trajectory)
 
             if self.controller_and_memory is not None:
                 self.history_embedding = self.controller_and_memory.memory(
@@ -136,8 +136,8 @@ class ImaginationBasedPlanner:
                     last_imagined_state=np.concatenate([last_imagined_ship_state.encode_state(self.use_ship_mass), planets_vector]),
                     action=imagined_action,
                     new_state=tensor_from([imagined_trajectory[-1].encode_state(self.use_ship_mass), tensor_from(planets_vector)]),
-                    reward=-imagined_loss.unsqueeze(0),
-                    i_action=self.i_action_of_episode,
+                    reward=-(imagined_loss + imagined_fuel_cost),
+                    i_action=self.environment.i_action,
                     i_imagination=i_imagination
                 )
 
@@ -152,7 +152,7 @@ class ImaginationBasedPlanner:
             detached_action = self.dummy_action()
 
         old_ship_state = deepcopy(self.environment.agent_ship)
-        actual_trajectory, actual_fuel_cost, actual_task_loss = self.perform_action(detached_action)
+        actual_trajectory, _, _ = self.perform_action(detached_action)
         new_ship_state = actual_trajectory[-1]
 
         ### REDO THIS AT BETTER PLACE
@@ -160,7 +160,7 @@ class ImaginationBasedPlanner:
         actual_fuel_cost = max(0, (np.linalg.norm(detached_action) - 8) * self.fuel_price)
         ### REDO THIS AT BETTER PLACE
 
-        if self.controller_and_memory is not None:
+        if self.controller_and_memory is not None and not self.environment.last_action_of_episode():
             self.history_embedding = self.controller_and_memory.memory(
                 route=route_as_vector(self.imagination_strategy, Routes.ACT),
                 actual_state=np.concatenate([old_ship_state.encode_state(self.use_ship_mass), planets_vector]),
@@ -168,7 +168,7 @@ class ImaginationBasedPlanner:
                 action=selected_action,
                 new_state=np.concatenate([new_ship_state.encode_state(self.use_ship_mass), planets_vector]),
                 reward=-(actual_task_cost + actual_fuel_cost),
-                i_action=self.i_action_of_episode,
+                i_action=self.environment.i_action,
                 i_imagination=i_imagination
             )
 
@@ -180,7 +180,8 @@ class ImaginationBasedPlanner:
         else:
             estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, self.environment.planets, detached_action, new_ship_state)
 
-        self.environment.add_estimated_ship_trajectory(estimated_trajectory)
+        if self.environment.render_after_each_step:
+            self.environment.add_estimated_ship_trajectory(estimated_trajectory)
 
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
 
