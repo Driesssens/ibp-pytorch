@@ -6,3 +6,5 @@ demo/
 storage_old/
 storage
 storage_old2/
+tests.py
+batch_test.py

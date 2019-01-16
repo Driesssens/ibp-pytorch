@@ -28,8 +28,11 @@ class ControllerAndMemory:
         self.optimizer.zero_grad()
         mean_loss.backward()
         norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
+        clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
 
         self.parent.log("controller_and_memory_batch_norm", norm)
+        self.parent.log("controller_and_memory_batch_clipped_norm", clipped_norm)
+
         self.optimizer.step()
 
         self.batch_total_loss = Accumulator()

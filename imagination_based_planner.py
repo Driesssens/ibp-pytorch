@@ -40,6 +40,7 @@ class ImaginationBasedPlanner:
                  fuel_price=0,
                  refresh_each_batch=False,
                  large_backprop=False,
+                 store_model=True
                  ):
         self.environment = environment
 
@@ -65,6 +66,7 @@ class ImaginationBasedPlanner:
             self.tensorboard_writer = None
 
         self.train = train
+        self.store_model = store_model
 
         # self.manager = Manager(self, history_embedding_length)
 
@@ -221,7 +223,8 @@ class ImaginationBasedPlanner:
             self.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
             self.batch_action_magnitude = Accumulator()
 
-            self.store()
+            if self.store_model:
+                self.store()
 
             if self.refresh_each_batch:
                 self.refresh()
