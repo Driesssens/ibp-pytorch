@@ -136,7 +136,7 @@ class ImaginationBasedPlanner:
                     last_imagined_state=np.concatenate([last_imagined_ship_state.encode_state(self.use_ship_mass), planets_vector]),
                     action=imagined_action,
                     new_state=tensor_from([imagined_trajectory[-1].encode_state(self.use_ship_mass), tensor_from(planets_vector)]),
-                    reward=-(imagined_loss + imagined_fuel_cost),
+                    reward=-(imagined_loss.unsqueeze(0) + imagined_fuel_cost),
                     i_action=self.environment.i_action,
                     i_imagination=i_imagination
                 )
