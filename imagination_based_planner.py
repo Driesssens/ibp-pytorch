@@ -29,7 +29,7 @@ class ImaginationBasedPlanner:
                  environment: SpaceshipEnvironment,
                  history_embedding_length=100,
                  max_imaginations_per_action=3,
-                 imagination_strategy=ImaginationStrategies.TREE,
+                 imagination_strategy=ImaginationStrategies.ONE_STEP,
                  n_episodes_per_batch=20,
                  experiment_name=None,
                  tensorboard=False,
@@ -37,11 +37,12 @@ class ImaginationBasedPlanner:
                  use_controller_and_memory=True,
                  dummy_action_magnitude_interval=(0, 8),
                  use_ship_mass=False,
-                 fuel_price=0,
+                 fuel_price=0.0004,
                  refresh_each_batch=False,
-                 large_backprop=False,
                  store_model=True,
-                 immediate_mode=False
+                 immediate_mode=False,
+                 use_manager=False,
+                 ponder_price=0.05
                  ):
         self.environment = environment
 
@@ -69,18 +70,20 @@ class ImaginationBasedPlanner:
         self.store_model = store_model
         self.immediate_mode = immediate_mode
 
-        # self.manager = Manager(self, history_embedding_length)
-
         self.use_ship_mass = use_ship_mass
         self.fuel_price = fuel_price
         self.refresh_each_batch = refresh_each_batch
-        self.large_backprop = large_backprop
 
         if use_controller_and_memory:
             self.controller_and_memory = ControllerAndMemory(self)
         else:
             self.controller_and_memory = None
             self.dummy_action_magnitude_interval = dummy_action_magnitude_interval
+
+        if use_manager:
+            self.manager = Manager(self)
+            self.ponder_price = ponder_price
+            self.batch_n_imaginations_per_action = Accumulator()
 
         self.imaginator = Imaginator(self)
         self.batch_start_time = time.perf_counter()
@@ -104,17 +107,23 @@ class ImaginationBasedPlanner:
         planets_vector = self.environment.planet_state_vector()
 
         for _ in range(self.max_imaginations_per_action):
-            # i_route = self.manager(np.concatenate([actual_ship_vector] + planet_vectors), self.history_embedding)
-            # route = routes_of_strategy[self.imagination_strategy][i_route]
-
-            route = Routes.IMAGINE_FROM_REAL_STATE
+            if self.manager is not None:
+                i_route = self.manager()
+                route = routes_of_strategy[self.imagination_strategy][i_route]
+            else:
+                route = Routes.IMAGINE_FROM_REAL_STATE
 
             if route is Routes.ACT:
+                if self.manager is not None:
+                    self.manager.episode_costs.append(0)
                 break
             if route is Routes.IMAGINE_FROM_REAL_STATE:
                 last_imagined_ship_state = self.environment.agent_ship
             if route is Routes.IMAGINE_FROM_LAST_IMAGINATION:
                 pass
+
+            if self.manager is not None:
+                self.manager.episode_costs.append(self.ponder_price)
 
             if self.controller_and_memory is not None:
                 imagined_action = self.controller_and_memory.controller(last_imagined_ship_state)
@@ -174,6 +183,14 @@ class ImaginationBasedPlanner:
                 i_imagination=i_imagination
             )
 
+        if self.manager is not None:
+            external_cost = actual_task_cost + actual_fuel_cost
+            self.manager.episode_costs[-1] += external_cost
+            self.batch_n_imaginations_per_action.add(i_imagination)
+            internal_cost = i_imagination * self.ponder_price
+            self.manager.batch_ponder_cost.add(internal_cost)
+            self.manager.batch_task_cost.add(external_cost + internal_cost)
+
         self.imaginator.compute_loss(actual_trajectory, self.environment.planets, detached_action)
 
         if self.controller_and_memory is not None:
@@ -210,11 +227,19 @@ class ImaginationBasedPlanner:
         #     print("{}: {}".format(self.i_episode, value))
         # self.episode_metrics = defaultdict(int)
 
+        if self.manager is not None:
+            self.manager.finish_episode()
+
         if self.train and (self.i_episode + 1) % self.n_episodes_per_batch == 0:
             self.imaginator.finish_batch()
 
             if self.controller_and_memory is not None:
                 self.controller_and_memory.finish_batch()
+                self.log("mean_n_imaginations_per_action", self.batch_n_imaginations_per_action.average())
+                self.batch_n_imaginations_per_action = Accumulator()
+
+            if self.manager is not None:
+                self.manager.finish_batch()
 
             now = time.perf_counter()
             seconds_passed = now - self.batch_start_time
@@ -256,20 +281,21 @@ class ImaginationBasedPlanner:
         if self.controller_and_memory is not None:
             self.controller_and_memory.store()
 
+        if self.manager is not None:
+            self.manager.store()
+
     def load(self, experiment_name):
-        try:
-            with open(os.path.join(self.experiment_folder, 'training_status.json')) as file:
-                training_status = json.load(file)
-                self.i_episode = training_status['i_episode'] + 1
-        except:
-            pass
+        with open(os.path.join(self.experiment_folder, 'training_status.json')) as file:
+            training_status = json.load(file)
+            self.i_episode = training_status['i_episode'] + 1
 
         self.imaginator.load(experiment_name)
 
-        try:
+        if self.controller_and_memory is not None:
             self.controller_and_memory.load(experiment_name)
-        except:
-            pass
+
+        if self.manager is not None:
+            self.manager.load(experiment_name)
 
     @property
     def routes_of_strategy(self):

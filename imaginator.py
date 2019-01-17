@@ -143,7 +143,4 @@ class Imaginator(torch.nn.Module):
 
     def load(self, experiment_name):
         self.load_state_dict(torch.load(os.path.join("storage", experiment_name, "imaginator_state_dict")))
-        try:
-            self.optimizer.load_state_dict(torch.load(os.path.join("storage", experiment_name, "imaginator_optimizer_state_dict")))
-        except:
-            pass
+        self.optimizer.load_state_dict(torch.load(os.path.join("storage", experiment_name, "imaginator_optimizer_state_dict")))
