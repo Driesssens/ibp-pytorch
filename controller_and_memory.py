@@ -17,31 +17,46 @@ class ControllerAndMemory:
         self.max_gradient_norm = max_gradient_norm
 
     def accumulate_loss(self, critic_evaluation, fuel_cost):
-        self.batch_fuel_loss.add(fuel_cost)
-        self.batch_task_loss.add(critic_evaluation)
-        self.batch_total_loss.add(critic_evaluation + fuel_cost)
+        if self.parent.immediate_mode:
+            total_loss = critic_evaluation + fuel_cost
+            total_loss.backward()
+        else:
+            self.batch_fuel_loss.add(fuel_cost)
+            self.batch_task_loss.add(critic_evaluation)
+            self.batch_total_loss.add(critic_evaluation + fuel_cost)
 
     def finish_batch(self):
-        mean_loss = self.batch_total_loss.average()
-        self.parent.log("controller_and_memory_mean_loss", mean_loss.item())
+        if self.parent.immediate_mode:
+            norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
+            clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
 
-        self.optimizer.zero_grad()
-        mean_loss.backward()
-        norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
-        clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
+            self.parent.log("controller_and_memory_batch_norm", norm)
+            self.parent.log("controller_and_memory_batch_clipped_norm", clipped_norm)
 
-        self.parent.log("controller_and_memory_batch_norm", norm)
-        self.parent.log("controller_and_memory_batch_clipped_norm", clipped_norm)
+            self.optimizer.step()
+            self.optimizer.zero_grad()
 
-        self.optimizer.step()
+        else:
+            mean_loss = self.batch_total_loss.average()
+            self.parent.log("controller_and_memory_mean_loss", mean_loss.item())
 
-        self.batch_total_loss = Accumulator()
+            self.optimizer.zero_grad()
+            mean_loss.backward()
+            norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
+            clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
 
-        self.parent.log("controller_and_memory_mean_task_loss", self.batch_task_loss.average().item())
-        self.batch_task_loss = Accumulator()
+            self.parent.log("controller_and_memory_batch_norm", norm)
+            self.parent.log("controller_and_memory_batch_clipped_norm", clipped_norm)
 
-        self.parent.log("controller_and_memory_mean_fuel_loss", self.batch_fuel_loss.average().item())
-        self.batch_fuel_loss = Accumulator()
+            self.optimizer.step()
+
+            self.batch_total_loss = Accumulator()
+
+            self.parent.log("controller_and_memory_mean_task_loss", self.batch_task_loss.average().item())
+            self.batch_task_loss = Accumulator()
+
+            self.parent.log("controller_and_memory_mean_fuel_loss", self.batch_fuel_loss.average().item())
+            self.batch_fuel_loss = Accumulator()
 
     def store(self):
         torch.save(self.controller.state_dict(), os.path.join(self.parent.experiment_folder, 'controller_state_dict'))

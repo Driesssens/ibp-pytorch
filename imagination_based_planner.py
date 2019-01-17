@@ -40,7 +40,8 @@ class ImaginationBasedPlanner:
                  fuel_price=0,
                  refresh_each_batch=False,
                  large_backprop=False,
-                 store_model=True
+                 store_model=True,
+                 immediate_mode=False
                  ):
         self.environment = environment
 
@@ -66,6 +67,7 @@ class ImaginationBasedPlanner:
 
         self.train = train
         self.store_model = store_model
+        self.immediate_mode = immediate_mode
 
         # self.manager = Manager(self, history_embedding_length)
 
