@@ -14,7 +14,8 @@ class Imaginator(torch.nn.Module):
                  object_module_layer_sizes=(100,),
                  velocity_normalization_factor=7.5,
                  action_normalization_factor=0.5,
-                 learning_rate=0.001,
+                 # learning_rate=0.001,
+                 learning_rate=0.01,
                  max_gradient_norm=10,
                  ):
         super().__init__()
@@ -125,7 +126,12 @@ class Imaginator(torch.nn.Module):
         mean_loss = self.batch_loss.average()
         self.parent.log("imaginator_mean_loss", mean_loss.item())
         self.optimizer.zero_grad()
-        mean_loss.backward()
+
+        if self.parent.imaginator_batch_loss_sum:
+            self.batch_loss.cumulative_value.backward()
+        else:
+            mean_loss.backward()
+
         norm = torch.nn.utils.clip_grad_norm_(self.parameters(), self.max_gradient_norm)
         self.parent.log("imaginator_batch_norm", norm)
         self.optimizer.step()

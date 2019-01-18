@@ -42,7 +42,8 @@ class ImaginationBasedPlanner:
                  store_model=True,
                  immediate_mode=False,
                  use_manager=False,
-                 ponder_price=0.05
+                 ponder_price=0.05,
+                 imaginator_batch_loss_sum=False
                  ):
         self.environment = environment
 
@@ -73,6 +74,7 @@ class ImaginationBasedPlanner:
         self.use_ship_mass = use_ship_mass
         self.fuel_price = fuel_price
         self.refresh_each_batch = refresh_each_batch
+        self.imaginator_batch_loss_sum = imaginator_batch_loss_sum
 
         if use_controller_and_memory:
             self.controller_and_memory = ControllerAndMemory(self)
@@ -84,6 +86,8 @@ class ImaginationBasedPlanner:
             self.manager = Manager(self)
             self.ponder_price = ponder_price
             self.batch_n_imaginations_per_action = Accumulator()
+        else:
+            self.manager = None
 
         self.imaginator = Imaginator(self)
         self.batch_start_time = time.perf_counter()

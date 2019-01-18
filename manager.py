@@ -40,6 +40,7 @@ class Manager(torch.nn.Module):
         self.entropy_factor = entropy_factor
 
         self.batch_entropy = Accumulator()
+        self.batch_entropy_loss = Accumulator()
         self.batch_task_cost = Accumulator()
         self.batch_ponder_cost = Accumulator()
         self.batch_policy_loss = Accumulator()
@@ -66,7 +67,7 @@ class Manager(torch.nn.Module):
         reversed_action_values = []
 
         for cost in reversed(self.episode_costs):
-            last_action_value = cost if not reversed_action_values else reversed_action_values[-1]
+            last_action_value = 0 if not reversed_action_values else reversed_action_values[-1]
             reversed_action_values.append(last_action_value + cost)
 
         action_values = list(reversed(reversed_action_values))
@@ -78,7 +79,10 @@ class Manager(torch.nn.Module):
             entropy = self.episode_entropies[i_action]
             self.batch_entropy.add(entropy)
 
-            total_loss = policy_loss - self.entropy_factor * entropy
+            entropy_loss = -entropy * self.episode_log_probabilities[i_action] * self.entropy_factor
+            self.batch_entropy_loss.add(entropy_loss)
+
+            total_loss = policy_loss + entropy_loss
             self.batch_total_loss.add(total_loss)
 
             total_loss.backward()
@@ -99,12 +103,14 @@ class Manager(torch.nn.Module):
         self.parent.log("manager_mean_task_cost", self.batch_task_cost.average())
         self.parent.log("manager_mean_ponder_cost", self.batch_ponder_cost.average())
         self.parent.log("manager_mean_policy_loss", self.batch_policy_loss.average().item())
+        self.parent.log("manager_mean_entropy_loss", self.batch_entropy_loss.average().item())
         self.parent.log("manager_mean_total_loss", self.batch_total_loss.average().item())
 
         self.batch_entropy = Accumulator()
         self.batch_task_cost = Accumulator()
         self.batch_ponder_cost = Accumulator()
         self.batch_policy_loss = Accumulator()
+        self.batch_entropy_loss = Accumulator()
         self.batch_total_loss = Accumulator()
 
     def store(self):
