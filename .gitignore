@@ -8,3 +8,6 @@ storage
 storage_old2/
 tests.py
 batch_test.py
+partial_observability.py
+demo2.py
+storage_old3/

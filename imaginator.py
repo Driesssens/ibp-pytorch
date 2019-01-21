@@ -14,8 +14,8 @@ class Imaginator(torch.nn.Module):
                  object_module_layer_sizes=(100,),
                  velocity_normalization_factor=7.5,
                  action_normalization_factor=0.5,
-                 # learning_rate=0.001,
-                 learning_rate=0.01,
+                 learning_rate=0.001,
+                 # learning_rate=0.01,
                  max_gradient_norm=10,
                  ):
         super().__init__()
@@ -76,7 +76,7 @@ class Imaginator(torch.nn.Module):
         if self.parent.fuel_price == 0:
             imagined_fuel_cost = tensor_from(0)
         else:
-            imagined_fuel_cost = torch.clamp((torch.norm(action) - 8) * self.parent.fuel_price, min=0)
+            imagined_fuel_cost = torch.clamp((torch.norm(tensor_from(action)) - 8) * self.parent.fuel_price, min=0)
 
         return imagined_ship_trajectory, imagined_loss, imagined_fuel_cost
 
@@ -135,6 +135,17 @@ class Imaginator(torch.nn.Module):
         norm = torch.nn.utils.clip_grad_norm_(self.parameters(), self.max_gradient_norm)
         self.parent.log("imaginator_batch_norm", norm)
         self.optimizer.step()
+        self.batch_loss = Accumulator()
+
+        self.parent.log("imaginator_mean_final_position_error", self.batch_evaluation.average())
+        self.batch_evaluation = Accumulator()
+
+        self.parent.log("controller_and_memory_mean_task_cost", self.batch_task_cost.average())
+        self.batch_task_cost = Accumulator()
+
+    def log_evaluation(self):
+        mean_loss = self.batch_loss.average()
+        self.parent.log("imaginator_mean_loss", mean_loss.item())
         self.batch_loss = Accumulator()
 
         self.parent.log("imaginator_mean_final_position_error", self.batch_evaluation.average())

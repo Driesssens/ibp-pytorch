@@ -35,7 +35,7 @@ class ImaginationBasedPlanner:
                  tensorboard=False,
                  train=True,
                  use_controller_and_memory=True,
-                 dummy_action_magnitude_interval=(0, 8),
+                 dummy_action_magnitude_interval=(0, 10),
                  use_ship_mass=False,
                  fuel_price=0.0004,
                  refresh_each_batch=False,
@@ -43,7 +43,8 @@ class ImaginationBasedPlanner:
                  immediate_mode=False,
                  use_manager=False,
                  ponder_price=0.05,
-                 imaginator_batch_loss_sum=False
+                 imaginator_batch_loss_sum=False,
+                 partial=False
                  ):
         self.environment = environment
 
@@ -89,6 +90,7 @@ class ImaginationBasedPlanner:
         else:
             self.manager = None
 
+        self.partial=partial
         self.imaginator = Imaginator(self)
         self.batch_start_time = time.perf_counter()
         self.batch_action_magnitude = Accumulator()
@@ -195,13 +197,13 @@ class ImaginationBasedPlanner:
             self.manager.batch_ponder_cost.add(internal_cost)
             self.manager.batch_task_cost.add(external_cost + internal_cost)
 
-        self.imaginator.compute_loss(actual_trajectory, self.environment.planets, detached_action)
+        self.imaginator.compute_loss(actual_trajectory, self.environment.planets[1:] if self.partial else self.environment.planets, detached_action)
 
         if self.controller_and_memory is not None:
             estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(old_ship_state, self.environment.planets, selected_action, new_ship_state)
             self.controller_and_memory.accumulate_loss(critic_evaluation, fuel_cost)
         else:
-            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, self.environment.planets, detached_action, new_ship_state)
+            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, self.environment.planets[1:] if self.partial else self.environment.planets, detached_action, new_ship_state)
 
         if self.environment.render_after_each_step:
             self.environment.add_estimated_ship_trajectory(estimated_trajectory)
@@ -234,32 +236,44 @@ class ImaginationBasedPlanner:
         if self.manager is not None:
             self.manager.finish_episode()
 
-        if self.train and (self.i_episode + 1) % self.n_episodes_per_batch == 0:
-            self.imaginator.finish_batch()
+        if (self.i_episode + 1) % self.n_episodes_per_batch == 0:
+            if self.train:
+                self.imaginator.finish_batch()
 
-            if self.controller_and_memory is not None:
-                self.controller_and_memory.finish_batch()
-                self.log("mean_n_imaginations_per_action", self.batch_n_imaginations_per_action.average())
-                self.batch_n_imaginations_per_action = Accumulator()
+                if self.controller_and_memory is not None:
+                    self.controller_and_memory.finish_batch()
+                    self.log("mean_n_imaginations_per_action", self.batch_n_imaginations_per_action.average())
+                    self.batch_n_imaginations_per_action = Accumulator()
 
-            if self.manager is not None:
-                self.manager.finish_batch()
+                if self.manager is not None:
+                    self.manager.finish_batch()
 
-            now = time.perf_counter()
-            seconds_passed = now - self.batch_start_time
-            minutes_passed = seconds_passed / 60
-            episodes_per_minute = self.n_episodes_per_batch / minutes_passed
-            self.log("episodes_per_minute", episodes_per_minute)
-            self.batch_start_time = now
+                now = time.perf_counter()
+                seconds_passed = now - self.batch_start_time
+                minutes_passed = seconds_passed / 60
+                episodes_per_minute = self.n_episodes_per_batch / minutes_passed
+                self.log("episodes_per_minute", episodes_per_minute)
+                self.batch_start_time = now
 
-            self.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
-            self.batch_action_magnitude = Accumulator()
+                self.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
+                self.batch_action_magnitude = Accumulator()
 
-            if self.store_model:
-                self.store()
+                if self.store_model:
+                    self.store()
 
-            if self.refresh_each_batch:
-                self.refresh()
+                if self.refresh_each_batch:
+                    self.refresh()
+            else:
+                self.imaginator.log_evaluation()
+                now = time.perf_counter()
+                seconds_passed = now - self.batch_start_time
+                minutes_passed = seconds_passed / 60
+                episodes_per_minute = self.n_episodes_per_batch / minutes_passed
+                self.log("episodes_per_minute", episodes_per_minute)
+                self.batch_start_time = now
+
+                self.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
+                self.batch_action_magnitude = Accumulator()
 
         self.history_embedding = torch.randn(self.history_embedding.shape)
 
@@ -289,9 +303,12 @@ class ImaginationBasedPlanner:
             self.manager.store()
 
     def load(self, experiment_name):
-        with open(os.path.join(self.experiment_folder, 'training_status.json')) as file:
-            training_status = json.load(file)
-            self.i_episode = training_status['i_episode'] + 1
+        try:
+            with open(os.path.join(self.experiment_folder, 'training_status.json')) as file:
+                training_status = json.load(file)
+                self.i_episode = training_status['i_episode'] + 1
+        except:
+            pass
 
         self.imaginator.load(experiment_name)
 
