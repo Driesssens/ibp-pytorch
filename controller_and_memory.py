@@ -1,115 +1,109 @@
 from utilities import *
-from spaceship_environment import Ship
-import os
+
+if False:
+    from experiment import Experiment
 
 
 class ControllerAndMemory:
-    def __init__(self, parent, learning_rate=0.003, max_gradient_norm=10):
-        self.parent = parent
-        self.controller = Controller(parent)
-        self.memory = Memory(parent)
+    def __init__(self, experiment: 'Experiment'):
+        self.exp = experiment
+        self.controller = Controller(self.exp)
+        self.memory = Memory(self.exp)
 
         self.batch_total_loss = Accumulator()
         self.batch_task_loss = Accumulator()
         self.batch_fuel_loss = Accumulator()
 
-        self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), learning_rate)
-        self.max_gradient_norm = max_gradient_norm
+        self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.learning_rate)
+        self.max_gradient_norm = self.exp.conf.controller.max_gradient_norm
 
     def accumulate_loss(self, critic_evaluation, fuel_cost):
-        if self.parent.immediate_mode:
+        if self.exp.conf.controller.immediate_mode:
             total_loss = critic_evaluation + fuel_cost
             total_loss.backward()
-        else:
-            self.batch_fuel_loss.add(fuel_cost)
-            self.batch_task_loss.add(critic_evaluation)
-            self.batch_total_loss.add(critic_evaluation + fuel_cost)
+
+        self.batch_fuel_loss.add(fuel_cost)
+        self.batch_task_loss.add(critic_evaluation)
+        self.batch_total_loss.add(critic_evaluation + fuel_cost)
 
     def finish_batch(self):
-        if self.parent.immediate_mode:
-            norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
-            clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
+        mean_loss = self.batch_total_loss.average()
 
-            self.parent.log("controller_and_memory_batch_norm", norm)
-            self.parent.log("controller_and_memory_batch_clipped_norm", clipped_norm)
+        if self.exp.train_model:
+            if not self.exp.conf.controller.immediate_mode:
+                self.optimizer.zero_grad()
+                mean_loss.backward()
+
+            norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.max_gradient_norm)
+            clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.max_gradient_norm)
+
+            self.exp.log("controller_and_memory_batch_norm", norm)
+            self.exp.log("controller_and_memory_batch_clipped_norm", clipped_norm)
 
             self.optimizer.step()
             self.optimizer.zero_grad()
 
-        else:
-            mean_loss = self.batch_total_loss.average()
-            self.parent.log("controller_and_memory_mean_loss", mean_loss.item())
+        self.exp.log("controller_and_memory_mean_loss", mean_loss.item())
+        self.batch_total_loss = Accumulator()
 
-            self.optimizer.zero_grad()
-            mean_loss.backward()
-            norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
-            clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.max_gradient_norm)
+        self.exp.log("controller_and_memory_mean_task_loss", self.batch_task_loss.average().item())
+        self.batch_task_loss = Accumulator()
 
-            self.parent.log("controller_and_memory_batch_norm", norm)
-            self.parent.log("controller_and_memory_batch_clipped_norm", clipped_norm)
+        self.exp.log("controller_and_memory_mean_fuel_loss", self.batch_fuel_loss.average().item())
+        self.batch_fuel_loss = Accumulator()
 
-            self.optimizer.step()
+    def store_model(self):
+        torch.save(self.controller.state_dict(), self.exp.file_path('controller_state_dict'))
+        torch.save(self.memory.state_dict(), self.exp.file_path('memory_state_dict'))
+        torch.save(self.optimizer.state_dict(), self.exp.file_path('controller_and_memory_optimizer_state_dict'))
 
-            self.batch_total_loss = Accumulator()
-
-            self.parent.log("controller_and_memory_mean_task_loss", self.batch_task_loss.average().item())
-            self.batch_task_loss = Accumulator()
-
-            self.parent.log("controller_and_memory_mean_fuel_loss", self.batch_fuel_loss.average().item())
-            self.batch_fuel_loss = Accumulator()
-
-    def store(self):
-        torch.save(self.controller.state_dict(), os.path.join(self.parent.experiment_folder, 'controller_state_dict'))
-        torch.save(self.memory.state_dict(), os.path.join(self.parent.experiment_folder, 'memory_state_dict'))
-        torch.save(self.optimizer.state_dict(), os.path.join(self.parent.experiment_folder, 'controller_and_memory_optimizer_state_dict'))
-
-    def load(self, experiment_name):
-        self.controller.load_state_dict(torch.load(os.path.join("storage", experiment_name, "controller_state_dict")))
-        self.memory.load_state_dict(torch.load(os.path.join("storage", experiment_name, "memory_state_dict")))
-        self.optimizer.load_state_dict(torch.load(os.path.join("storage", experiment_name, "controller_and_memory_optimizer_state_dict")))
+    def load_model(self):
+        self.controller.load_state_dict(torch.load(self.exp.file_path("controller_state_dict")))
+        self.memory.load_state_dict(torch.load(self.exp.file_path("memory_state_dict")))
+        self.optimizer.load_state_dict(torch.load(self.exp.file_path("controller_and_memory_optimizer_state_dict")))
 
 
 class Controller(torch.nn.Module):
-    def __init__(self, parent, hidden_layer_sizes=(100, 100)):
+    def __init__(self, experiment: 'Experiment'):
         super().__init__()
 
-        self.parent = parent
+        self.exp = experiment
 
-        state_vector_length = 5 * (1 + parent.environment.n_planets)  # (mass, xy position, xy velocity) * n_objects
+        state_vector_length = 5 * (1 + self.exp.conf.n_planets)  # (mass, xy position, xy velocity) * n_objects
 
-        if not self.parent.use_ship_mass:
+        if not self.exp.conf.use_ship_mass:
             state_vector_length -= 1
 
-        history_embedding_length = len(parent.history_embedding)
+        history_embedding_length = self.exp.conf.history_embedding_length
         action_vector_length = 2  # ship xy force
 
         self.neural_net = make_mlp_with_relu(
             input_size=state_vector_length + history_embedding_length,
-            hidden_layer_sizes=hidden_layer_sizes,
+            hidden_layer_sizes=self.exp.conf.controller.hidden_layer_sizes,
             output_size=action_vector_length,
             final_relu=False
         )
 
     def forward(self, ship_state):
-        input_tensor = tensor_from(ship_state.encode_state(self.parent.use_ship_mass), self.parent.environment.planet_state_vector(), self.parent.history_embedding)
+        input_tensor = tensor_from(ship_state.encode_state(self.exp.conf.use_ship_mass), self.exp.env.planet_state_vector(), self.exp.agent.history_embedding)
         action = self.neural_net(input_tensor)
         return action
 
 
 class Memory(torch.nn.Module):
-    def __init__(self, parent):
+    def __init__(self, experiment: 'Experiment'):
         super().__init__()
 
-        self.parent = parent
+        self.exp = experiment
 
-        route_vector_length = len(parent.routes_of_strategy)
-        state_vector_length = 5 * (1 + parent.environment.n_planets)
+        route_vector_length = len(self.exp.conf.routes_of_strategy)
+        state_vector_length = 5 * (1 + self.exp.conf.n_planets)
 
-        if not self.parent.use_ship_mass:
+        if not self.exp.conf.use_ship_mass:
             state_vector_length -= 1
 
         action_vector_length = 2  # ship xy force
-        history_embedding_length = len(parent.history_embedding)
+        history_embedding_length = self.exp.conf.history_embedding_length
 
         input_vector_length = sum([
             route_vector_length,  # Route, so whether to ACT, IMAGINE_FROM_REAL_STATE or IMAGINE_FROM_LAST_IMAGINATION
@@ -125,12 +119,9 @@ class Memory(torch.nn.Module):
         self.lstm_cell = torch.nn.LSTMCell(input_vector_length, history_embedding_length)
         self.cell_state = torch.randn(1, history_embedding_length)
 
-    def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination, reset_state=False):
-        if reset_state:
-            self.reset_state()
-
+    def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination):
         input_tensor = tensor_from(route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination)
-        history_embedding, self.cell_state = self.lstm_cell(input_tensor.unsqueeze(0), (self.parent.history_embedding.unsqueeze(0), self.cell_state))
+        history_embedding, self.cell_state = self.lstm_cell(input_tensor.unsqueeze(0), (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state))
 
         return history_embedding.squeeze()
 

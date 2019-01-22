@@ -1,134 +1,57 @@
-from enum import Enum, IntEnum
-from collections import defaultdict
-
-import numpy as np
-import torch
-import tensorboardX
-import os
-import datetime
+import json
 import time
 from copy import deepcopy
-import json
 
-from spaceship_environment import SpaceshipEnvironment, polar2cartesian
 from controller_and_memory import ControllerAndMemory
 from imaginator import Imaginator
 from manager import Manager
+from spaceship_environment import polar2cartesian
+from configuration import route_as_vector, Routes
 from utilities import *
 
-
-class ImaginationStrategies(Enum):
-    ONE_STEP = 1
-    N_STEP = 2
-    TREE = 3
+if False:
+    from experiment import Experiment
 
 
 class ImaginationBasedPlanner:
-    def __init__(self,
-                 environment: SpaceshipEnvironment,
-                 history_embedding_length=100,
-                 max_imaginations_per_action=3,
-                 imagination_strategy=ImaginationStrategies.ONE_STEP,
-                 n_episodes_per_batch=20,
-                 experiment_name=None,
-                 tensorboard=False,
-                 train=True,
-                 use_controller_and_memory=True,
-                 dummy_action_magnitude_interval=(0, 10),
-                 use_ship_mass=False,
-                 fuel_price=0.0004,
-                 refresh_each_batch=False,
-                 store_model=True,
-                 immediate_mode=False,
-                 use_manager=False,
-                 ponder_price=0.05,
-                 imaginator_batch_loss_sum=False,
-                 partial=False
-                 ):
-        self.environment = environment
-
-        self.max_imaginations_per_action = max_imaginations_per_action
-        self.imagination_strategy = imagination_strategy
-
-        self.n_episodes_per_batch = n_episodes_per_batch
+    def __init__(self, experiment: 'Experiment'):
+        self.exp: 'Experiment' = experiment
 
         self.i_episode = 0
-        self.history_embedding = torch.randn(history_embedding_length)
-        self.episode_metrics = defaultdict(int)
+        self.history_embedding = torch.randn(self.exp.conf.history_embedding_length)
 
-        self.experiment_name = experiment_name if experiment_name is not None else datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-        self.experiment_folder = os.path.join('storage', self.experiment_name)
+        self.imaginator: Imaginator = None
+        self.controller_and_memory: ControllerAndMemory = None
+        self.manager: Manager = None
 
-        if not os.path.exists(self.experiment_folder):
-            os.makedirs(self.experiment_folder)
-
-        if tensorboard:
-            self.tensorboard_writer = tensorboardX.SummaryWriter(self.experiment_folder)
-        else:
-            self.tensorboard_writer = None
-
-        self.train = train
-        self.store_model = store_model
-        self.immediate_mode = immediate_mode
-
-        self.use_ship_mass = use_ship_mass
-        self.fuel_price = fuel_price
-        self.refresh_each_batch = refresh_each_batch
-        self.imaginator_batch_loss_sum = imaginator_batch_loss_sum
-
-        if use_controller_and_memory:
-            self.controller_and_memory = ControllerAndMemory(self)
-        else:
-            self.controller_and_memory = None
-            self.dummy_action_magnitude_interval = dummy_action_magnitude_interval
-
-        if use_manager:
-            self.manager = Manager(self)
-            self.ponder_price = ponder_price
-            self.batch_n_imaginations_per_action = Accumulator()
-        else:
-            self.manager = None
-
-        self.partial=partial
-        self.imaginator = Imaginator(self)
+        self.batch_n_imaginations_per_action = Accumulator()
         self.batch_start_time = time.perf_counter()
         self.batch_action_magnitude = Accumulator()
-
-    def refresh(self):
-        if self.controller_and_memory is not None:
-            self.controller_and_memory = ControllerAndMemory(self)
-            self.controller_and_memory.load(self.experiment_name)
-
-        self.imaginator = Imaginator(self)
-        self.imaginator.load(self.experiment_name)
-
-        if self.tensorboard_writer is not None:
-            self.tensorboard_writer = tensorboardX.SummaryWriter(self.experiment_folder)
 
     def act(self):
         i_imagination = 0
 
-        last_imagined_ship_state = self.environment.agent_ship
-        planets_vector = self.environment.planet_state_vector()
+        last_imagined_ship_state = self.exp.env.agent_ship
+        planets_vector = self.exp.env.planet_state_vector()
 
-        for _ in range(self.max_imaginations_per_action):
+        for _ in range(self.exp.conf.max_imaginations_per_action):
             if self.manager is not None:
                 i_route = self.manager()
-                route = routes_of_strategy[self.imagination_strategy][i_route]
+                route = self.exp.conf.routes_of_strategy[i_route]
+
+                if route is Routes.ACT:
+                    self.manager.episode_costs.append(0)
+                else:
+                    self.manager.episode_costs.append(self.exp.conf.manager.ponder_price)
             else:
                 route = Routes.IMAGINE_FROM_REAL_STATE
 
             if route is Routes.ACT:
-                if self.manager is not None:
-                    self.manager.episode_costs.append(0)
                 break
-            if route is Routes.IMAGINE_FROM_REAL_STATE:
-                last_imagined_ship_state = self.environment.agent_ship
-            if route is Routes.IMAGINE_FROM_LAST_IMAGINATION:
+            elif route is Routes.IMAGINE_FROM_REAL_STATE:
+                last_imagined_ship_state = self.exp.env.agent_ship
+            elif route is Routes.IMAGINE_FROM_LAST_IMAGINATION:
                 pass
-
-            if self.manager is not None:
-                self.manager.episode_costs.append(self.ponder_price)
 
             if self.controller_and_memory is not None:
                 imagined_action = self.controller_and_memory.controller(last_imagined_ship_state)
@@ -137,23 +60,22 @@ class ImaginationBasedPlanner:
 
             imagined_trajectory, imagined_loss, imagined_fuel_cost = self.imaginator.imagine(
                 last_imagined_ship_state,
-                self.environment.planets,
+                self.exp.env.planets,
                 imagined_action,
                 differentiable_trajectory=True
             )
 
-            if self.environment.render_after_each_step:
-                self.environment.add_imagined_ship_trajectory(imagined_trajectory)
+            self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
 
             if self.controller_and_memory is not None:
                 self.history_embedding = self.controller_and_memory.memory(
-                    route=route_as_vector(self.imagination_strategy, route),
-                    actual_state=np.concatenate([self.environment.agent_ship.encode_state(self.use_ship_mass), planets_vector]),
-                    last_imagined_state=np.concatenate([last_imagined_ship_state.encode_state(self.use_ship_mass), planets_vector]),
+                    route=route_as_vector(self.exp.conf.imagination_strategy, route),
+                    actual_state=np.concatenate([self.exp.env.agent_ship.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
+                    last_imagined_state=np.concatenate([last_imagined_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
                     action=imagined_action,
-                    new_state=tensor_from([imagined_trajectory[-1].encode_state(self.use_ship_mass), tensor_from(planets_vector)]),
+                    new_state=tensor_from([imagined_trajectory[-1].encode_state(self.exp.conf.use_ship_mass), tensor_from(planets_vector)]),
                     reward=-(imagined_loss.unsqueeze(0) + imagined_fuel_cost),
-                    i_action=self.environment.i_action,
+                    i_action=self.exp.env.i_action,
                     i_imagination=i_imagination
                 )
 
@@ -162,117 +84,75 @@ class ImaginationBasedPlanner:
             i_imagination += 1
 
         if self.controller_and_memory is not None:
-            selected_action = self.controller_and_memory.controller(self.environment.agent_ship)
+            selected_action = self.controller_and_memory.controller(self.exp.env.agent_ship)
             detached_action = selected_action.detach().numpy()
         else:
             detached_action = self.dummy_action()
 
-        old_ship_state = deepcopy(self.environment.agent_ship)
-        actual_trajectory, _, _ = self.perform_action(detached_action)
+        old_ship_state = deepcopy(self.exp.env.agent_ship)
+        actual_trajectory, actual_fuel_cost, actual_task_cost = self.perform_action(detached_action)
         new_ship_state = actual_trajectory[-1]
 
-        ### REDO THIS AT BETTER PLACE
-        actual_task_cost = np.square(new_ship_state.xy_position).mean()
-        actual_fuel_cost = max(0, (np.linalg.norm(detached_action) - 8) * self.fuel_price)
-        ### REDO THIS AT BETTER PLACE
-
-        if self.controller_and_memory is not None and not self.environment.last_action_of_episode():
+        if self.controller_and_memory is not None and not self.exp.env.last_action_of_episode():
             self.history_embedding = self.controller_and_memory.memory(
-                route=route_as_vector(self.imagination_strategy, Routes.ACT),
-                actual_state=np.concatenate([old_ship_state.encode_state(self.use_ship_mass), planets_vector]),
-                last_imagined_state=np.concatenate([old_ship_state.encode_state(self.use_ship_mass), planets_vector]),
+                route=route_as_vector(self.exp.conf.imagination_strategy, Routes.ACT),
+                actual_state=np.concatenate([old_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
+                last_imagined_state=np.concatenate([old_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
                 action=selected_action,
-                new_state=np.concatenate([new_ship_state.encode_state(self.use_ship_mass), planets_vector]),
+                new_state=np.concatenate([new_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
                 reward=-(actual_task_cost + actual_fuel_cost),
-                i_action=self.environment.i_action,
+                i_action=self.exp.env.i_action,
                 i_imagination=i_imagination
             )
 
         if self.manager is not None:
             external_cost = actual_task_cost + actual_fuel_cost
             self.manager.episode_costs[-1] += external_cost
-            self.batch_n_imaginations_per_action.add(i_imagination)
-            internal_cost = i_imagination * self.ponder_price
+            internal_cost = i_imagination * self.exp.conf.manager.ponder_price
             self.manager.batch_ponder_cost.add(internal_cost)
             self.manager.batch_task_cost.add(external_cost + internal_cost)
 
-        self.imaginator.compute_loss(actual_trajectory, self.environment.planets[1:] if self.partial else self.environment.planets, detached_action)
+        self.imaginator.accumulate_loss(actual_trajectory, self.exp.env.planets, detached_action)
 
         if self.controller_and_memory is not None:
-            estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(old_ship_state, self.environment.planets, selected_action, new_ship_state)
+            estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(old_ship_state, self.exp.env.planets, selected_action, new_ship_state)
             self.controller_and_memory.accumulate_loss(critic_evaluation, fuel_cost)
         else:
-            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, self.environment.planets[1:] if self.partial else self.environment.planets, detached_action, new_ship_state)
+            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, self.exp.env.planets, detached_action, new_ship_state)
 
-        if self.environment.render_after_each_step:
-            self.environment.add_estimated_ship_trajectory(estimated_trajectory)
-
+        self.exp.env.add_estimated_ship_trajectory(estimated_trajectory)
+        self.batch_n_imaginations_per_action.add(i_imagination)
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
 
-    def perform_action(self, action):
-        fuel_cost = None
-        task_loss = None
-        resultant_trajectory = [deepcopy(self.environment.agent_ship)]
+    def perform_action(self, action, compute_cost_independently=True):
+        resultant_fuel_cost = None
+        resultant_task_loss = None
+        resultant_trajectory = [deepcopy(self.exp.env.agent_ship)]
 
-        for i_physics_step in range(self.environment.n_steps_per_action):
-            _, reward, done, _ = self.environment.step(action if i_physics_step == 0 else np.zeros(2))
+        for i_physics_step in range(self.exp.env.n_steps_per_action):
+            _, reward, done, _ = self.exp.env.step(action if i_physics_step == 0 else np.zeros(2))
 
-            resultant_trajectory.append(deepcopy(self.environment.agent_ship))
+            resultant_trajectory.append(deepcopy(self.exp.env.agent_ship))
 
             if i_physics_step == 0:
-                fuel_cost = -reward
+                resultant_fuel_cost = -reward
             elif done:
-                task_loss = -reward
+                resultant_task_loss = -reward
 
-        return resultant_trajectory, fuel_cost, task_loss
+        if compute_cost_independently:
+            computed_task_cost = np.square(resultant_trajectory[-1].xy_position).mean()
+            computed_fuel_cost = max(0, (np.linalg.norm(action) - self.exp.conf.fuel_cost_threshold) * self.exp.conf.fuel_price)
+
+            return resultant_trajectory, computed_task_cost, computed_fuel_cost
+        else:
+            return resultant_trajectory, resultant_fuel_cost, resultant_task_loss
 
     def finish_episode(self):
-        # for metric, value in self.episode_metrics.items():
-        #     self.tensorboard_writer.add_scalar(metric, value, self.i_episode)
-        #     print("{}: {}".format(self.i_episode, value))
-        # self.episode_metrics = defaultdict(int)
-
         if self.manager is not None:
             self.manager.finish_episode()
 
-        if (self.i_episode + 1) % self.n_episodes_per_batch == 0:
-            if self.train:
-                self.imaginator.finish_batch()
-
-                if self.controller_and_memory is not None:
-                    self.controller_and_memory.finish_batch()
-                    self.log("mean_n_imaginations_per_action", self.batch_n_imaginations_per_action.average())
-                    self.batch_n_imaginations_per_action = Accumulator()
-
-                if self.manager is not None:
-                    self.manager.finish_batch()
-
-                now = time.perf_counter()
-                seconds_passed = now - self.batch_start_time
-                minutes_passed = seconds_passed / 60
-                episodes_per_minute = self.n_episodes_per_batch / minutes_passed
-                self.log("episodes_per_minute", episodes_per_minute)
-                self.batch_start_time = now
-
-                self.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
-                self.batch_action_magnitude = Accumulator()
-
-                if self.store_model:
-                    self.store()
-
-                if self.refresh_each_batch:
-                    self.refresh()
-            else:
-                self.imaginator.log_evaluation()
-                now = time.perf_counter()
-                seconds_passed = now - self.batch_start_time
-                minutes_passed = seconds_passed / 60
-                episodes_per_minute = self.n_episodes_per_batch / minutes_passed
-                self.log("episodes_per_minute", episodes_per_minute)
-                self.batch_start_time = now
-
-                self.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
-                self.batch_action_magnitude = Accumulator()
+        if (self.i_episode + 1) % self.exp.conf.n_episodes_per_batch == 0:
+            self.finish_batch()
 
         self.history_embedding = torch.randn(self.history_embedding.shape)
 
@@ -281,45 +161,50 @@ class ImaginationBasedPlanner:
 
         self.i_episode += 1
 
+    def finish_batch(self):
+        self.imaginator.finish_batch()
+
+        if self.controller_and_memory is not None:
+            self.controller_and_memory.finish_batch()
+
+        if self.manager is not None:
+            self.manager.finish_batch()
+
+        self.exp.log("mean_n_imaginations_per_action", self.batch_n_imaginations_per_action.average())
+        self.batch_n_imaginations_per_action = Accumulator()
+
+        self.exp.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
+        self.batch_action_magnitude = Accumulator()
+
+        if self.exp.store_model:
+            self.store_model()
+
+        now = time.perf_counter()
+        minutes_passed = (now - self.batch_start_time) / 60
+        episodes_per_minute = self.exp.conf.n_episodes_per_batch / minutes_passed
+        self.exp.log("episodes_per_minute", episodes_per_minute)
+        self.batch_start_time = now
+
     @property
     def i_episode_of_batch(self):
-        return self.i_episode % self.n_episodes_per_batch
+        return self.i_episode % self.exp.conf.n_episodes_per_batch
 
-    def log(self, name, value):
-        if self.tensorboard_writer is not None:
-            self.tensorboard_writer.add_scalar(name, value, self.i_episode)
+    def store_model(self):
+        with open(self.exp.file_path('training_status.json'), 'w') as file:
+            json.dump(self.training_status, file, indent=2)
 
-    def store(self):
-        with open(os.path.join(self.experiment_folder, 'training_status.json'), 'w') as file:
-            json.dump(self.training_status, file)
-
-        self.imaginator.store()
+        self.imaginator.store_model()
 
         if self.controller_and_memory is not None:
-            self.controller_and_memory.store()
+            self.controller_and_memory.store_model()
 
         if self.manager is not None:
-            self.manager.store()
+            self.manager.store_model()
 
-    def load(self, experiment_name):
-        try:
-            with open(os.path.join(self.experiment_folder, 'training_status.json')) as file:
+    def load_model(self):
+        with open(self.exp.file_path('training_status.json')) as file:
                 training_status = json.load(file)
                 self.i_episode = training_status['i_episode'] + 1
-        except:
-            pass
-
-        self.imaginator.load(experiment_name)
-
-        if self.controller_and_memory is not None:
-            self.controller_and_memory.load(experiment_name)
-
-        if self.manager is not None:
-            self.manager.load(experiment_name)
-
-    @property
-    def routes_of_strategy(self):
-        return routes_of_strategy[self.imagination_strategy]
 
     @property
     def training_status(self):
@@ -327,25 +212,6 @@ class ImaginationBasedPlanner:
 
     def dummy_action(self):
         angle = np.pi * np.random.uniform(0, 2)
-        radius = np.random.uniform(*self.dummy_action_magnitude_interval)
+        radius = np.random.uniform(*self.exp.conf.dummy_action_magnitude_interval)
         action = np.array(polar2cartesian(angle, radius))
         return action
-
-
-class Routes(IntEnum):
-    ACT = 1
-    IMAGINE_FROM_REAL_STATE = 2
-    IMAGINE_FROM_LAST_IMAGINATION = 3
-
-
-routes_of_strategy = {
-    ImaginationStrategies.ONE_STEP: [Routes.ACT, Routes.IMAGINE_FROM_REAL_STATE],
-    ImaginationStrategies.N_STEP: [Routes.ACT, Routes.IMAGINE_FROM_LAST_IMAGINATION],
-    ImaginationStrategies.TREE: [Routes.ACT, Routes.IMAGINE_FROM_REAL_STATE, Routes.IMAGINE_FROM_LAST_IMAGINATION]
-}
-
-
-def route_as_vector(strategy, route):
-    boolean_vector_encoding = np.array(routes_of_strategy[strategy]) == route
-    integer_vector_encoding = boolean_vector_encoding.astype(int)
-    return integer_vector_encoding

@@ -493,15 +493,16 @@ class SpaceshipEnvironment(gym.Env):
         self.add_estimated_or_imagined_ship_trajectory(self.estimated_ship_trajectories, estimated_ship_trajectory)
 
     def add_estimated_or_imagined_ship_trajectory(self, list_to_add_to, imagined_ship_trajectory):
+        if not self.render_after_each_step:
+            return
+
         list_to_add_to.append([])
 
         for state in imagined_ship_trajectory:
             state.detach_and_to_numpy()
             list_to_add_to[-1].append(state.xy_position)
             self.update_zoom_factor(state.xy_position[0], state.xy_position[1])
-
-            if self.render_after_each_step:
-                self.render()
+            self.render()
 
 
 class SpaceObject:
