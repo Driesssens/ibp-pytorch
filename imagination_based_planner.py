@@ -14,7 +14,6 @@ from spaceship_environment import SpaceshipEnvironment, polar2cartesian
 from controller_and_memory import ControllerAndMemory
 from imaginator import Imaginator
 from manager import Manager
-from memory import Memory
 from utilities import *
 
 
