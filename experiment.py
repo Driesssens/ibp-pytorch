@@ -95,13 +95,13 @@ class Experiment:
         return loaded_experiment
 
     def __init__(self):
-        self.conf: GeneralConfiguration = None
+        self.conf = None  # type: GeneralConfiguration
         self.name = None
         self.path = None
-        self.agent: ImaginationBasedPlanner = None
-        self.env: SpaceshipEnvironment = None
+        self.agent = None  # type: ImaginationBasedPlanner
+        self.env = None  # type: SpaceshipEnvironment
 
-        self.tensorboard_writer: tensorboardX.SummaryWriter = None
+        self.tensorboard_writer = None  # type: tensorboardX.SummaryWriter
         self.train_model = None
         self.store_model = None
 

@@ -142,9 +142,9 @@ class GeneralConfiguration:
         self.n_episodes_per_batch = n_episodes_per_batch
         self.dummy_action_magnitude_interval = dummy_action_magnitude_interval
         self.use_ship_mass = use_ship_mass
-        self.imaginator: ImaginatorConfiguration = imaginator
-        self.controller: ControllerConfiguration = controller
-        self.manager: ManagerConfiguration = manager
+        self.imaginator = imaginator  # type: ImaginatorConfiguration
+        self.controller = controller  # type: ControllerConfiguration
+        self.manager = manager  # type: ManagerConfiguration
 
     @property
     def routes_of_strategy(self):

@@ -15,14 +15,14 @@ if False:
 
 class ImaginationBasedPlanner:
     def __init__(self, experiment: 'Experiment'):
-        self.exp: 'Experiment' = experiment
+        self.exp = experiment  # type: 'Experiment'
 
         self.i_episode = 0
         self.history_embedding = torch.randn(self.exp.conf.history_embedding_length)
 
-        self.imaginator: Imaginator = None
-        self.controller_and_memory: ControllerAndMemory = None
-        self.manager: Manager = None
+        self.imaginator = None  # type: Imaginator
+        self.controller_and_memory = None  # type: ControllerAndMemory
+        self.manager = None  # type: Manager
 
         self.batch_n_imaginations_per_action = Accumulator()
         self.batch_start_time = time.perf_counter()
@@ -203,8 +203,8 @@ class ImaginationBasedPlanner:
 
     def load_model(self):
         with open(self.exp.file_path('training_status.json')) as file:
-                training_status = json.load(file)
-                self.i_episode = training_status['i_episode'] + 1
+            training_status = json.load(file)
+            self.i_episode = training_status['i_episode'] + 1
 
     @property
     def training_status(self):
