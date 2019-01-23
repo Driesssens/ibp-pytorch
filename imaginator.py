@@ -127,8 +127,12 @@ class Imaginator(torch.nn.Module):
             else:
                 mean_loss.backward()
 
-            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.imaginator.max_gradient_norm)
-            self.exp.log("imaginator_batch_norm", norm)
+            self.exp.log("imaginator_batch_norm", gradient_norm(self.parameters()))
+
+            if self.exp.conf.imaginator.max_gradient_norm is not None:
+                torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.imaginator.max_gradient_norm)
+                self.exp.log("imaginator_batch_clipped_norm", gradient_norm(self.parameters()))
+
             self.optimizer.step()
 
         self.batch_loss = Accumulator()

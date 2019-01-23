@@ -34,11 +34,11 @@ class ControllerAndMemory:
                 self.optimizer.zero_grad()
                 mean_loss.backward()
 
-            norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.max_gradient_norm)
-            clipped_norm = torch.nn.utils.clip_grad_norm_(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.max_gradient_norm)
+            self.exp.log("controller_and_memory_batch_norm", gradient_norm(self.parameters()))
 
-            self.exp.log("controller_and_memory_batch_norm", norm)
-            self.exp.log("controller_and_memory_batch_clipped_norm", clipped_norm)
+            if self.exp.conf.controller.max_gradient_norm is not None:
+                torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.controller.max_gradient_norm)
+                self.exp.log("controller_and_memory_batch_clipped_norm", gradient_norm(self.parameters()))
 
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -61,6 +61,9 @@ class ControllerAndMemory:
         self.controller.load_state_dict(torch.load(self.exp.file_path("controller_state_dict")))
         self.memory.load_state_dict(torch.load(self.exp.file_path("memory_state_dict")))
         self.optimizer.load_state_dict(torch.load(self.exp.file_path("controller_and_memory_optimizer_state_dict")))
+
+    def parameters(self):
+        return list(self.controller.parameters()) + list(self.memory.parameters())
 
 
 class Controller(torch.nn.Module):

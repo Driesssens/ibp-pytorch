@@ -88,8 +88,11 @@ class Manager(torch.nn.Module):
 
     def finish_batch(self):
         if self.exp.train_model:
-            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.manager.max_gradient_norm)
-            self.exp.log("manager_batch_norm", norm)
+            self.exp.log("manager_batch_norm", gradient_norm(self.parameters()))
+
+            if self.exp.conf.manager.max_gradient_norm is not None:
+                torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.manager.max_gradient_norm)
+                self.exp.log("manager_batch_clipped_norm", gradient_norm(self.parameters()))
 
             self.optimizer.step()
             self.optimizer.zero_grad()

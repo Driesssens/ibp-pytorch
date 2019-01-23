@@ -10,7 +10,7 @@ from spaceship_environment import SpaceshipEnvironment
 
 class Experiment:
     @classmethod
-    def new(cls, configuration: GeneralConfiguration, name, path=('storage', 'misc',)):
+    def new(cls, configuration: GeneralConfiguration, name, path=('storage', 'home', 'misc',)):
         new_experiment = cls()
         new_experiment.name = name
         new_experiment.path = path

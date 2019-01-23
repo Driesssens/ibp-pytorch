@@ -48,6 +48,17 @@ def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu):
     return sequence
 
 
+def gradient_norm(parameters):
+    total_norm = 0
+
+    for parameter in parameters:
+        parameter_norm = parameter.grad.data.norm(2)
+        total_norm += parameter_norm.item() ** 2
+
+    total_norm = total_norm ** (1. / 2)
+    return total_norm
+
+
 class Accumulator:
     def __init__(self):
         self.cumulative_value = None
