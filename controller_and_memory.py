@@ -120,7 +120,7 @@ class Memory(torch.nn.Module):
         ])
 
         self.lstm_cell = torch.nn.LSTMCell(input_vector_length, history_embedding_length)
-        self.cell_state = torch.randn(1, history_embedding_length)
+        self.cell_state = torch.zeros(1, history_embedding_length)
 
     def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination):
         input_tensor = tensor_from(route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination)
@@ -129,4 +129,4 @@ class Memory(torch.nn.Module):
         return history_embedding.squeeze()
 
     def reset_state(self):
-        self.cell_state = torch.randn(self.cell_state.shape)
+        self.cell_state = torch.zeros(self.cell_state.shape)

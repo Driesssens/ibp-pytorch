@@ -75,3 +75,94 @@ class Accumulator:
     def average(self):
         average = self.cumulative_value / self.counter
         return average
+
+
+class ConfigurationSeries:
+    def __init__(self):
+        self.names = []
+        self.value_tuples = []
+
+    def add(self, name, value):
+        self.names.append(name)
+        self.value_tuples.append(value)
+
+    def index_of(self, name):
+        return self.names.index(name)
+
+    def values_of(self, name):
+        return self.value_tuples[self.index_of(name)]
+
+    def factor_of(self, index):
+        if isinstance(index, str):
+            index = self.index_of(index)
+
+        factor = 1
+
+        for values in self.value_tuples[index + 1:]:
+            factor *= len(values)
+
+        return factor
+
+    def rank(self, name, value):
+        return self.values_of(name).index(value)
+
+    def contribution(self, name, value):
+        return self.factor_of(name) * self.rank(name, value)
+
+    def get_id(self, **kwargs):
+        return sum([self.contribution(name, value) for (name, value) in kwargs.items()])
+
+    def get_settings(self, the_id):
+        settings = {}
+
+        for name in self.names:
+            settings[name] = self.values_of(name)[the_id // self.factor_of(name)]
+            the_id = the_id % self.factor_of(name)
+
+        return settings
+
+    def get_title(self, the_id):
+        settings = self.get_settings(the_id)
+        title = ""
+
+        for name in reversed(self.names):
+            title += name + '_' + str(settings[name]) + '-'
+
+        title += 'id_'
+        title += str(the_id)
+
+        return title
+
+    def n_configurations(self):
+        return len(self.values_of(self.names[0])) * self.factor_of(self.names[0])
+
+    @classmethod
+    def test(cls):
+        series = cls()
+        series.add('ponder', (2, 3, 4))
+        series.add('grad_clip', (False, True))
+        series.add('sum_loss', (False, True))
+
+        print(series.get_id(ponder=2, grad_clip=False, sum_loss=False))
+        print(series.get_settings(series.get_id(ponder=2, grad_clip=False, sum_loss=False)))
+
+        print(series.get_id(ponder=2, grad_clip=False, sum_loss=True))
+        print(series.get_settings(series.get_id(ponder=2, grad_clip=False, sum_loss=True)))
+
+        print(series.get_id(ponder=3, grad_clip=False, sum_loss=False))
+        print(series.get_settings(series.get_id(ponder=3, grad_clip=False, sum_loss=False)))
+
+        print(series.get_id(ponder=3, grad_clip=False, sum_loss=True))
+        print(series.get_settings(series.get_id(ponder=3, grad_clip=False, sum_loss=True)))
+
+        print(series.get_id(ponder=4, grad_clip=False, sum_loss=False))
+        print(series.get_settings(series.get_id(ponder=4, grad_clip=False, sum_loss=False)))
+
+        print(series.get_id(ponder=4, grad_clip=False, sum_loss=True))
+        print(series.get_settings(series.get_id(ponder=4, grad_clip=False, sum_loss=True)))
+
+        print(series.factor_of('ponder'))
+        print(series.factor_of('grad_clip'))
+        print(series.factor_of('sum_loss'))
+
+        print(series.n_configurations())

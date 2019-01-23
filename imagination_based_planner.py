@@ -18,7 +18,7 @@ class ImaginationBasedPlanner:
         self.exp = experiment  # type: 'Experiment'
 
         self.i_episode = 0
-        self.history_embedding = torch.randn(self.exp.conf.history_embedding_length)
+        self.history_embedding = torch.zeros(self.exp.conf.history_embedding_length)
 
         self.imaginator = None  # type: Imaginator
         self.controller_and_memory = None  # type: ControllerAndMemory
@@ -154,7 +154,7 @@ class ImaginationBasedPlanner:
         if (self.i_episode + 1) % self.exp.conf.n_episodes_per_batch == 0:
             self.finish_batch()
 
-        self.history_embedding = torch.randn(self.history_embedding.shape)
+        self.history_embedding = torch.zeros(self.history_embedding.shape)
 
         if self.controller_and_memory is not None:
             self.controller_and_memory.memory.reset_state()
