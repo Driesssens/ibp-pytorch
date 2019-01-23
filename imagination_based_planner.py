@@ -176,6 +176,8 @@ class ImaginationBasedPlanner:
         self.exp.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
         self.batch_action_magnitude = Accumulator()
 
+        self.exp.log("get_num_threads", torch.get_num_threads())
+
         if self.exp.store_model:
             self.store_model()
 
