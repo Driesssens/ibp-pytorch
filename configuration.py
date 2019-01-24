@@ -1,7 +1,8 @@
 from enum import Enum, IntEnum
 import numpy as np
+from typing import Union
 
-from controller_and_memory import ControllerAndMemory
+from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory
 from imaginator import Imaginator
 from manager import Manager
 
@@ -36,6 +37,27 @@ class ControllerConfiguration(Configuration):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
         self.hidden_layer_sizes = hidden_layer_sizes
+        self.immediate_mode = immediate_mode
+
+
+class SetControllerAndFlatMemoryConfiguration(Configuration):
+    the_class = SetControllerAndFlatMemory
+
+    def __init__(self,
+                 learning_rate=0.003,
+                 max_gradient_norm=10,
+                 relation_module_layer_sizes=(150, 150, 150, 150),
+                 effect_embedding_length=100,
+                 control_module_layer_sizes=(100,),
+                 velocity_normalization_factor=1,
+                 immediate_mode=True
+                 ):
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.relation_module_layer_sizes = relation_module_layer_sizes
+        self.effect_embedding_length = effect_embedding_length
+        self.control_module_layer_sizes = control_module_layer_sizes
+        self.velocity_normalization_factor = velocity_normalization_factor
         self.immediate_mode = immediate_mode
 
 
@@ -143,7 +165,7 @@ class GeneralConfiguration:
         self.dummy_action_magnitude_interval = dummy_action_magnitude_interval
         self.use_ship_mass = use_ship_mass
         self.imaginator = imaginator  # type: ImaginatorConfiguration
-        self.controller = controller  # type: ControllerConfiguration
+        self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration]
         self.manager = manager  # type: ManagerConfiguration
 
     @property

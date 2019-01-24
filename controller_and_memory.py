@@ -1,21 +1,22 @@
 from utilities import *
+from abc import ABC, abstractmethod
 
 if False:
     from experiment import Experiment
 
 
-class ControllerAndMemory:
+class AbstractControllerAndMemory(ABC):
+    @abstractmethod
     def __init__(self, experiment: 'Experiment'):
+        self.controller = None
+        self.memory = None
+        self.optimizer = None
+
         self.exp = experiment
-        self.controller = Controller(self.exp)
-        self.memory = Memory(self.exp)
 
         self.batch_total_loss = Accumulator()
         self.batch_task_loss = Accumulator()
         self.batch_fuel_loss = Accumulator()
-
-        self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.learning_rate)
-        self.max_gradient_norm = self.exp.conf.controller.max_gradient_norm
 
     def accumulate_loss(self, critic_evaluation, fuel_cost):
         if self.exp.conf.controller.immediate_mode:
@@ -64,6 +65,75 @@ class ControllerAndMemory:
 
     def parameters(self):
         return list(self.controller.parameters()) + list(self.memory.parameters())
+
+
+class ControllerAndMemory(AbstractControllerAndMemory):
+    def __init__(self, experiment: 'Experiment'):
+        super().__init__(experiment)
+
+        self.controller = Controller(self.exp)
+        self.memory = Memory(self.exp)
+
+        self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.learning_rate)
+
+
+class SetControllerAndFlatMemory(AbstractControllerAndMemory):
+    def __init__(self, experiment: 'Experiment'):
+        super().__init__(experiment)
+
+        self.controller = SetController(self.exp)
+        self.memory = Memory(self.exp)
+
+        self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.learning_rate)
+
+
+class SetController(torch.nn.Module):
+    def __init__(self, experiment: 'Experiment'):
+        super().__init__()
+
+        self.exp = experiment
+
+        history_embedding_length = self.exp.conf.history_embedding_length
+        action_vector_length = 2  # ship xy force
+
+        self.relation_module = make_mlp_with_relu(
+            input_size=(1 if self.exp.conf.use_ship_mass else 0) + 1 + 2,  # ship mass + planet mass + difference vector between ship and planet xy position
+            hidden_layer_sizes=self.exp.conf.controller.relation_module_layer_sizes,
+            output_size=self.exp.conf.controller.effect_embedding_length,
+            final_relu=False
+        )
+
+        self.control_module = make_mlp_with_relu(
+            input_size=(1 if self.exp.conf.use_ship_mass else 0) + 2 + 2 + self.exp.conf.controller.effect_embedding_length + history_embedding_length,  # ship mass + ship xy position + ship xy velocity + effect embedding + history embedding
+            hidden_layer_sizes=self.exp.conf.controller.control_module_layer_sizes,
+            output_size=action_vector_length,
+            final_relu=False
+        )
+
+    def forward(self, ship):
+        if self.exp.conf.use_ship_mass:
+            effect_embeddings = [self.relation_module(tensor_from(ship.mass, planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in self.exp.env.planets]
+        else:
+            effect_embeddings = [self.relation_module(tensor_from(planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in self.exp.env.planets]
+
+        aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
+
+        if self.exp.conf.use_ship_mass:
+            action = self.object_module(tensor_from(
+                ship.mass,
+                ship.xy_position,
+                ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor,
+                aggregate_effect_embedding,
+                self.exp.agent.history_embedding
+            ))
+        else:
+            action = self.control_module(tensor_from(
+                ship.xy_position,
+                ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor,
+                aggregate_effect_embedding,
+                self.exp.agent.history_embedding
+            ))
+        return action
 
 
 class Controller(torch.nn.Module):
