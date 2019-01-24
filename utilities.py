@@ -49,6 +49,7 @@ def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu):
 
 
 def gradient_norm(parameters):
+    parameters = list(filter(lambda p: p.grad is not None, parameters))
     total_norm = 0
 
     for parameter in parameters:
