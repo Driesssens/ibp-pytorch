@@ -32,12 +32,30 @@ class ControllerConfiguration(Configuration):
                  learning_rate=0.003,
                  max_gradient_norm=10,
                  hidden_layer_sizes=(100, 100),
-                 immediate_mode=True
+                 immediate_mode=True,
+                 only_ship_state=False,
+                 use_route=True,
+                 use_actual_state=True,
+                 use_last_imagined_state=True,
+                 use_action=True,
+                 use_new_state=True,
+                 use_reward=True,
+                 use_i_action=True,
+                 use_i_imagination=True,
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
         self.hidden_layer_sizes = hidden_layer_sizes
         self.immediate_mode = immediate_mode
+        self.only_ship_state = only_ship_state
+        self.use_route = use_route
+        self.use_actual_state = use_actual_state
+        self.use_last_imagined_state = use_last_imagined_state
+        self.use_action = use_action
+        self.use_new_state = use_new_state
+        self.use_reward = use_reward
+        self.use_i_action = use_i_action
+        self.use_i_imagination = use_i_imagination
 
 
 class SetControllerAndFlatMemoryConfiguration(Configuration):
@@ -50,7 +68,16 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
                  effect_embedding_length=100,
                  control_module_layer_sizes=(100,),
                  velocity_normalization_factor=1,
-                 immediate_mode=True
+                 immediate_mode=True,
+                 only_ship_state=False,
+                 use_route=True,
+                 use_actual_state=True,
+                 use_last_imagined_state=True,
+                 use_action=True,
+                 use_new_state=True,
+                 use_reward=True,
+                 use_i_action=True,
+                 use_i_imagination=True
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -59,6 +86,15 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
         self.control_module_layer_sizes = control_module_layer_sizes
         self.velocity_normalization_factor = velocity_normalization_factor
         self.immediate_mode = immediate_mode
+        self.only_ship_state = only_ship_state
+        self.use_route = use_route
+        self.use_actual_state = use_actual_state
+        self.use_last_imagined_state = use_last_imagined_state
+        self.use_action = use_action
+        self.use_new_state = use_new_state
+        self.use_reward = use_reward
+        self.use_i_action = use_i_action
+        self.use_i_imagination = use_i_imagination
 
 
 class ImaginatorConfiguration(Configuration):

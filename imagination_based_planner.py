@@ -70,13 +70,13 @@ class ImaginationBasedPlanner:
             if self.controller_and_memory is not None:
                 self.history_embedding = self.controller_and_memory.memory(
                     route=route_as_vector(self.exp.conf.imagination_strategy, route),
-                    actual_state=np.concatenate([self.exp.env.agent_ship.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
-                    last_imagined_state=np.concatenate([last_imagined_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
+                    actual_state=self.exp.env.agent_ship,
+                    last_imagined_state=last_imagined_ship_state,
                     action=imagined_action,
-                    new_state=tensor_from([imagined_trajectory[-1].encode_state(self.exp.conf.use_ship_mass), tensor_from(planets_vector)]),
+                    new_state=imagined_trajectory[-1],
                     reward=-(imagined_loss.unsqueeze(0) + imagined_fuel_cost),
                     i_action=self.exp.env.i_action,
-                    i_imagination=i_imagination
+                    i_imagination=i_imagination,
                 )
 
             last_imagined_ship_state = imagined_trajectory[-1]
@@ -96,13 +96,13 @@ class ImaginationBasedPlanner:
         if self.controller_and_memory is not None and not self.exp.env.last_action_of_episode():
             self.history_embedding = self.controller_and_memory.memory(
                 route=route_as_vector(self.exp.conf.imagination_strategy, Routes.ACT),
-                actual_state=np.concatenate([old_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
-                last_imagined_state=np.concatenate([old_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
+                actual_state=old_ship_state,
+                last_imagined_state=old_ship_state,
                 action=selected_action,
-                new_state=np.concatenate([new_ship_state.encode_state(self.exp.conf.use_ship_mass), planets_vector]),
+                new_state=new_ship_state,
                 reward=-(actual_task_cost + actual_fuel_cost),
                 i_action=self.exp.env.i_action,
-                i_imagination=i_imagination
+                i_imagination=i_imagination,
             )
 
         if self.manager is not None:

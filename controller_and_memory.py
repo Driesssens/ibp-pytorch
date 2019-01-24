@@ -170,7 +170,7 @@ class Memory(torch.nn.Module):
         self.exp = experiment
 
         route_vector_length = len(self.exp.conf.routes_of_strategy)
-        state_vector_length = 5 * (1 + self.exp.conf.n_planets)
+        state_vector_length = 5 if self.exp.conf.controller.only_ship_state else 5 * (1 + self.exp.conf.n_planets)
 
         if not self.exp.conf.use_ship_mass:
             state_vector_length -= 1
@@ -179,21 +179,59 @@ class Memory(torch.nn.Module):
         history_embedding_length = self.exp.conf.history_embedding_length
 
         input_vector_length = sum([
-            route_vector_length,  # Route, so whether to ACT, IMAGINE_FROM_REAL_STATE or IMAGINE_FROM_LAST_IMAGINATION
-            state_vector_length,  # Current actual state
-            state_vector_length,  # Last imagined state
-            action_vector_length,  # Performed or imagined action
-            state_vector_length,  # New imagined or actual state
-            1,  # Resultant imagined or actual reward
-            1,  # Index of real actions ('j' in the paper)
-            1,  # Index of imagined actions since the last real action ('k' in the paper)
+            route_vector_length if self.exp.conf.controller.use_route else 0,  # Route, so whether to ACT, IMAGINE_FROM_REAL_STATE or IMAGINE_FROM_LAST_IMAGINATION
+            state_vector_length if self.exp.conf.controller.use_actual_state else 0,  # Current actual state
+            state_vector_length if self.exp.conf.controller.use_last_imagined_state else 0,  # Last imagined state
+            action_vector_length if self.exp.conf.controller.use_action else 0,  # Performed or imagined action
+            state_vector_length if self.exp.conf.controller.use_new_state else 0,  # New imagined or actual state
+            1 if self.exp.conf.controller.use_reward else 0,  # Resultant imagined or actual reward
+            1 if self.exp.conf.controller.use_i_action else 0,  # Index of real actions ('j' in the paper)
+            1 if self.exp.conf.controller.use_i_imagination else 0,  # Index of imagined actions since the last real action ('k' in the paper)
         ])
 
         self.lstm_cell = torch.nn.LSTMCell(input_vector_length, history_embedding_length)
         self.cell_state = torch.zeros(1, history_embedding_length)
 
     def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination):
-        input_tensor = tensor_from(route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination)
+        input_parts = []
+
+        if self.exp.conf.controller.use_route:
+            input_parts.append(route)
+
+        if self.exp.conf.controller.use_actual_state:
+            actual_state_vector = actual_state.encode_state(self.exp.conf.use_ship_mass)
+            if not self.exp.conf.controller.only_ship_state:
+                actual_state_vector = np.concatenate([actual_state_vector, self.exp.env.planet_state_vector()])
+            input_parts.append(actual_state_vector)
+
+        if self.exp.conf.controller.use_last_imagined_state:
+            last_imagined_state_vector = last_imagined_state.encode_state(self.exp.conf.use_ship_mass)
+            if not self.exp.conf.controller.only_ship_state:
+                last_imagined_state_vector = np.concatenate([last_imagined_state_vector, self.exp.env.planet_state_vector()])
+            input_parts.append(last_imagined_state_vector)
+
+        if self.exp.conf.controller.use_action:
+            input_parts.append(action)
+
+        if self.exp.conf.controller.use_new_state:
+            new_state_vector = new_state.encode_state(self.exp.conf.use_ship_mass)
+            if not self.exp.conf.controller.only_ship_state:
+                if new_state.state_is_tensor():
+                    new_state_vector = tensor_from(new_state_vector, self.exp.env.planet_state_vector())
+                else:
+                    new_state_vector = np.concatenate([new_state_vector, self.exp.env.planet_state_vector()])
+            input_parts.append(new_state_vector)
+
+        if self.exp.conf.controller.use_reward:
+            input_parts.append(reward)
+
+        if self.exp.conf.controller.use_i_action:
+            input_parts.append(i_action)
+
+        if self.exp.conf.controller.use_i_imagination:
+            input_parts.append(i_imagination)
+
+        input_tensor = tensor_from(input_parts)
         history_embedding, self.cell_state = self.lstm_cell(input_tensor.unsqueeze(0), (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state))
 
         return history_embedding.squeeze()
