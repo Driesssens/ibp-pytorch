@@ -2,6 +2,8 @@ import json
 import os
 import itertools
 import tensorboardX
+import torch
+import numpy as np
 
 from configuration import *
 from imagination_based_planner import ImaginationBasedPlanner
@@ -49,7 +51,7 @@ class Experiment:
         return new_experiment
 
     @classmethod
-    def load(cls, name, path=('storage', 'misc',)):
+    def load(cls, name, path=('storage', 'home', 'misc',)):
         loaded_experiment = cls()
         loaded_experiment.name = name
         loaded_experiment.path = path
@@ -111,7 +113,7 @@ class Experiment:
     def file_path(self, file_name):
         return os.path.join(self.directory_path(), file_name)
 
-    def train(self, n_episodes=-1):
+    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000):
         print("training {} for {} episodes".format(self.name, n_episodes))
 
         self.initialize_environment()
@@ -121,6 +123,7 @@ class Experiment:
         self.store_model = True
 
         self.tensorboard_writer = tensorboardX.SummaryWriter(self.directory_path())
+        first = True
 
         for i_episode in itertools.count():
             self.env.reset()
@@ -132,6 +135,11 @@ class Experiment:
 
             if i_episode == n_episodes:
                 break
+
+            if measure_performance_every_n_episodes != 0 and self.tensorboard_writer is not None:
+                if self.agent.i_episode % measure_performance_every_n_episodes == 0:
+                    self.measure_performance(measure_performance_n_sample_episodes, first)
+                    first = False
 
     def render(self):
         print("rendering {}".format(self.name))
@@ -151,6 +159,111 @@ class Experiment:
                 self.agent.act()
 
             self.agent.finish_episode()
+
+    def evaluate(self, n_episodes=-1):
+        print("evaluating {} for {} episodes".format(self.name, n_episodes))
+
+        self.initialize_environment()
+
+        self.env.render_after_each_step = False
+        self.train_model = False
+        self.store_model = False
+
+        self.tensorboard_writer = None
+
+        with torch.no_grad():
+            for i_episode in itertools.count():
+                self.env.reset()
+
+                for i_action in range(self.conf.n_actions_per_episode):
+                    self.agent.act()
+
+                self.agent.finish_episode()
+
+                if i_episode == n_episodes:
+                    break
+
+    def measure_performance(self, n_episodes, first=False):
+        stashed_train_model = self.train_model
+        stashed_store_model = self.store_model
+        stashed_tensorboard_writer = self.tensorboard_writer
+        stashed_i_episode = self.agent.i_episode
+
+        self.train_model = False
+        self.store_model = False
+        self.tensorboard_writer = None
+
+        self.agent.measure_performance = True
+        self.agent.imaginator_mean_final_position_error_measurements = []
+        self.agent.controller_and_memory_mean_task_cost_measurements = []
+        self.agent.manager_mean_task_cost_measurements = []
+
+        with torch.no_grad():
+            for _ in range(n_episodes):
+                self.env.reset()
+
+                for i_action in range(self.conf.n_actions_per_episode):
+                    self.agent.act()
+
+                self.agent.finish_episode()
+
+        self.agent.i_episode = stashed_i_episode
+        self.store_model = stashed_store_model
+        self.train_model = stashed_train_model
+        self.tensorboard_writer = stashed_tensorboard_writer
+
+        if first:
+            layout = {}
+
+            for thing in ('imaginator', 'controller', 'manager'):
+                layout[thing] = {
+                    'extremes': ['Margin', ['{}/mean'.format(thing), '{}/min'.format(thing), '{}/max'.format(thing)]],
+                    'percentile_10': ['Margin', ['{}/mean'.format(thing), '{}/10_percentile'.format(thing), '{}/90_percentile'.format(thing)]],
+                    'percentile_25': ['Margin', ['{}/mean'.format(thing), '{}/25_percentile'.format(thing), '{}/75_percentile'.format(thing)]],
+                }
+
+            self.tensorboard_writer.add_custom_scalars(layout)
+
+        if self.conf.imaginator is not None:
+            imaginator_performance = np.stack(self.agent.imaginator_mean_final_position_error_measurements)
+
+            self.log('imaginator/mean', imaginator_performance.mean())
+            self.log('imaginator/min', imaginator_performance.min())
+            self.log('imaginator/max', imaginator_performance.max())
+            self.log('imaginator/10_percentile', np.percentile(imaginator_performance, 10))
+            self.log('imaginator/90_percentile', np.percentile(imaginator_performance, 90))
+            self.log('imaginator/25_percentile', np.percentile(imaginator_performance, 25))
+            self.log('imaginator/75_percentile', np.percentile(imaginator_performance, 75))
+            self.log('imaginator/variance', imaginator_performance.var())
+
+        if self.conf.controller is not None:
+            controller_performance = np.stack(self.agent.controller_and_memory_mean_task_cost_measurements)
+
+            self.log('controller/mean', controller_performance.mean())
+            self.log('controller/min', controller_performance.min())
+            self.log('controller/max', controller_performance.max())
+            self.log('controller/10_percentile', np.percentile(controller_performance, 10))
+            self.log('controller/90_percentile', np.percentile(controller_performance, 90))
+            self.log('controller/25_percentile', np.percentile(controller_performance, 25))
+            self.log('controller/75_percentile', np.percentile(controller_performance, 75))
+            self.log('controller/variance', controller_performance.var())
+
+        if self.conf.manager is not None:
+            manager_performance = np.stack(self.agent.manager_mean_task_cost_measurements)
+
+            self.log('manager/mean', manager_performance.mean())
+            self.log('manager/min', manager_performance.min())
+            self.log('manager/max', manager_performance.max())
+            self.log('manager/10_percentile', np.percentile(manager_performance, 10))
+            self.log('manager/90_percentile', np.percentile(manager_performance, 90))
+            self.log('manager/25_percentile', np.percentile(manager_performance, 25))
+            self.log('manager/75_percentile', np.percentile(manager_performance, 75))
+            self.log('manager/variance', manager_performance.var())
+
+        del self.agent.measure_performance
+        del self.agent.imaginator_mean_final_position_error_measurements
+        del self.agent.controller_and_memory_mean_task_cost_measurements
+        del self.agent.manager_mean_task_cost_measurements
 
     def initialize_environment(self):
         self.env = SpaceshipEnvironment(

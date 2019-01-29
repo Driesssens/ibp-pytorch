@@ -1,5 +1,5 @@
 from utilities import *
-from spaceship_environment import Ship, Planet
+from spaceship_environment import Ship, Planet, polar2cartesian, cartesian2polar
 from typing import List
 from copy import deepcopy
 
@@ -75,6 +75,27 @@ class Imaginator(torch.nn.Module):
         else:
             effect_embeddings = [self.relation_module(tensor_from(planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in planets]
 
+        if hasattr(self, 'measure_effect_embeddings') and not isinstance(action, np.ndarray):
+            for i, embedding in enumerate(effect_embeddings):
+                planet = self.exp.env.planets[i]
+
+                actual_radius = np.linalg.norm(ship.xy_position.detach().numpy() - planet.xy_position)
+                pretended_radius = actual_radius
+
+                pretended_xy_distance = planet.xy_position - ship.xy_position.detach().numpy()
+                minimal_radius = planet.mass
+
+                if pretended_radius < minimal_radius:
+                    pretended_radius = minimal_radius
+                    actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
+                    pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
+
+                xy_gravitational_force = self.exp.env.gravitational_constant * planet.mass * ship.mass * pretended_xy_distance / pretended_radius ** 3
+                gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
+
+                self.embeddings.append(embedding.detach().numpy())
+                self.metrics.append([planet.mass, actual_radius, gravitational_force_magnitude])
+
         aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
 
         if self.exp.conf.use_ship_mass:
@@ -112,6 +133,10 @@ class Imaginator(torch.nn.Module):
 
         task_cost = np.square(actual_final_position).mean()
         self.batch_task_cost.add(task_cost)
+
+        if hasattr(self.exp.agent, 'measure_performance'):
+            self.exp.agent.imaginator_mean_final_position_error_measurements.append(evaluation)
+            self.exp.agent.controller_and_memory_mean_task_cost_measurements.append(task_cost)
 
         return estimated_trajectory, critic_evaluation, estimated_fuel_cost
 

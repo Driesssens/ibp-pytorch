@@ -1,5 +1,6 @@
 from utilities import *
 from abc import ABC, abstractmethod
+from spaceship_environment import cartesian2polar, polar2cartesian
 
 if False:
     from experiment import Experiment
@@ -21,7 +22,8 @@ class AbstractControllerAndMemory(ABC):
     def accumulate_loss(self, critic_evaluation, fuel_cost):
         if self.exp.conf.controller.immediate_mode:
             total_loss = critic_evaluation + fuel_cost
-            total_loss.backward()
+            if self.exp.train_model:
+                total_loss.backward()
 
         self.batch_fuel_loss.add(fuel_cost)
         self.batch_task_loss.add(critic_evaluation)
@@ -96,12 +98,13 @@ class SetController(torch.nn.Module):
         history_embedding_length = self.exp.conf.history_embedding_length
         action_vector_length = 2  # ship xy force
 
-        self.relation_module = make_mlp_with_relu(
-            input_size=(1 if self.exp.conf.use_ship_mass else 0) + 1 + 2,  # ship mass + planet mass + difference vector between ship and planet xy position
-            hidden_layer_sizes=self.exp.conf.controller.relation_module_layer_sizes,
-            output_size=self.exp.conf.controller.effect_embedding_length,
-            final_relu=False
-        )
+        if self.exp.conf.controller.effect_embedding_length > 0:
+            self.relation_module = make_mlp_with_relu(
+                input_size=(1 if self.exp.conf.use_ship_mass else 0) + 1 + 2,  # ship mass + planet mass + difference vector between ship and planet xy position
+                hidden_layer_sizes=self.exp.conf.controller.relation_module_layer_sizes,
+                output_size=self.exp.conf.controller.effect_embedding_length,
+                final_relu=False
+            )
 
         self.control_module = make_mlp_with_relu(
             input_size=(1 if self.exp.conf.use_ship_mass else 0) + 2 + 2 + self.exp.conf.controller.effect_embedding_length + history_embedding_length,  # ship mass + ship xy position + ship xy velocity + effect embedding + history embedding
@@ -111,28 +114,44 @@ class SetController(torch.nn.Module):
         )
 
     def forward(self, ship):
-        if self.exp.conf.use_ship_mass:
-            effect_embeddings = [self.relation_module(tensor_from(ship.mass, planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in self.exp.env.planets]
-        else:
-            effect_embeddings = [self.relation_module(tensor_from(planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in self.exp.env.planets]
+        if self.exp.conf.controller.effect_embedding_length > 0:
+            effect_embeddings = [self.relation_module(tensor_from(
+                ship.mass if self.exp.conf.use_ship_mass else None,
+                planet.mass,
+                tensor_from(ship.xy_position) - tensor_from(planet.xy_position))
+            ) for planet in self.exp.env.planets]
 
-        aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
+            if hasattr(self, 'measure_effect_embeddings'):
+                for i, embedding in enumerate(effect_embeddings):
+                    planet = self.exp.env.planets[i]
 
-        if self.exp.conf.use_ship_mass:
-            action = self.object_module(tensor_from(
-                ship.mass,
-                ship.xy_position,
-                ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor,
-                aggregate_effect_embedding,
-                self.exp.agent.history_embedding
-            ))
-        else:
-            action = self.control_module(tensor_from(
-                ship.xy_position,
-                ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor,
-                aggregate_effect_embedding,
-                self.exp.agent.history_embedding
-            ))
+                    actual_radius = np.linalg.norm(ship.xy_position - planet.xy_position)
+                    pretended_radius = actual_radius
+
+                    pretended_xy_distance = planet.xy_position - ship.xy_position
+                    minimal_radius = planet.mass
+
+                    if pretended_radius < minimal_radius:
+                        pretended_radius = minimal_radius
+                        actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
+                        pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
+
+                    xy_gravitational_force = self.exp.env.gravitational_constant * planet.mass * ship.mass * pretended_xy_distance / pretended_radius ** 3
+                    gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
+
+                    self.embeddings.append(embedding.detach().numpy())
+                    self.metrics.append([planet.mass, actual_radius, gravitational_force_magnitude])
+
+            aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
+
+        action = self.control_module(tensor_from(
+            ship.mass if self.exp.conf.use_ship_mass else None,
+            ship.xy_position,
+            ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor,
+            aggregate_effect_embedding if self.exp.conf.controller.effect_embedding_length > 0 else None,
+            self.exp.agent.history_embedding
+        ))
+
         return action
 
 

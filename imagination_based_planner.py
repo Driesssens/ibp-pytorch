@@ -32,7 +32,6 @@ class ImaginationBasedPlanner:
         i_imagination = 0
 
         last_imagined_ship_state = self.exp.env.agent_ship
-        planets_vector = self.exp.env.planet_state_vector()
 
         for _ in range(self.exp.conf.max_imaginations_per_action):
             if self.manager is not None:
@@ -111,6 +110,9 @@ class ImaginationBasedPlanner:
             internal_cost = i_imagination * self.exp.conf.manager.ponder_price
             self.manager.batch_ponder_cost.add(internal_cost)
             self.manager.batch_task_cost.add(external_cost + internal_cost)
+
+            if hasattr(self, 'measure_performance'):
+                self.manager_mean_task_cost_measurements.append(external_cost + internal_cost)
 
         self.imaginator.accumulate_loss(actual_trajectory, self.exp.env.planets, detached_action)
 

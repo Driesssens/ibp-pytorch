@@ -10,6 +10,8 @@ def tensor_from(*args):
     tensor_parts = []
 
     for part in args:
+        if part is None:
+            continue
         if isinstance(part, (int, float, complex)):
             part = torch.tensor([part]).float()
         if isinstance(part, np.number):
