@@ -107,7 +107,7 @@ class SetController(torch.nn.Module):
             )
 
         self.control_module = make_mlp_with_relu(
-            input_size=(1 if self.exp.conf.use_ship_mass else 0) + 2 + 2 + self.exp.conf.controller.effect_embedding_length + history_embedding_length,  # ship mass + ship xy position + ship xy velocity + effect embedding + history embedding
+            input_size=(1 if self.exp.conf.use_ship_mass else 0) + (2 + 2 if not self.exp.conf.controller.hide_ship_state else 0) + self.exp.conf.controller.effect_embedding_length + history_embedding_length,  # ship mass + ship xy position + ship xy velocity + effect embedding + history embedding
             hidden_layer_sizes=self.exp.conf.controller.control_module_layer_sizes,
             output_size=action_vector_length,
             final_relu=False
@@ -146,8 +146,8 @@ class SetController(torch.nn.Module):
 
         action = self.control_module(tensor_from(
             ship.mass if self.exp.conf.use_ship_mass else None,
-            ship.xy_position,
-            ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor,
+            ship.xy_position if not self.exp.conf.controller.hide_ship_state else None,
+            ship.xy_velocity / self.exp.conf.controller.velocity_normalization_factor if not self.exp.conf.controller.hide_ship_state else None,
             aggregate_effect_embedding if self.exp.conf.controller.effect_embedding_length > 0 else None,
             self.exp.agent.history_embedding
         ))

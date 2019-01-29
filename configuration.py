@@ -66,6 +66,7 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
                  max_gradient_norm=10,
                  relation_module_layer_sizes=(150, 150, 150, 150),
                  effect_embedding_length=100,
+                 hide_ship_state=False,
                  control_module_layer_sizes=(100,),
                  velocity_normalization_factor=1,
                  immediate_mode=True,
@@ -83,6 +84,7 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
         self.max_gradient_norm = max_gradient_norm
         self.relation_module_layer_sizes = relation_module_layer_sizes
         self.effect_embedding_length = effect_embedding_length
+        self.hide_ship_state = hide_ship_state
         self.control_module_layer_sizes = control_module_layer_sizes
         self.velocity_normalization_factor = velocity_normalization_factor
         self.immediate_mode = immediate_mode
