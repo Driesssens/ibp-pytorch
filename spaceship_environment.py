@@ -126,6 +126,9 @@ class SpaceshipEnvironment(gym.Env):
                  planets_random_radial_distance_interval=DEFAULT,
                  sun_mass=DEFAULT,
                  sun_random_radial_distance_interval=DEFAULT,
+                 n_secondary_planets=0,
+                 secondary_planets_random_mass_interval=(0.004, 0.1),
+                 secondary_planets_random_radial_distance_interval=(1.8, 2.0),
                  cap_gravity=GravityCap.Low,
                  render_window_size=900,
                  store_episode_as_gif=False,
@@ -223,8 +226,18 @@ class SpaceshipEnvironment(gym.Env):
         if self.n_planets > 0 and self.sun_mass:
             self.planets[0].mass = self.sun_mass
 
+        for _ in range(self.n_secondary_planets):
+            self.planets.append(Planet(
+                random_mass_interval=self.secondary_planets_random_mass_interval,
+                random_radial_distance_interval=self.secondary_planets_random_radial_distance_interval
+            ))
+
         self.i_step = 0
         self.lowest_zoom_factor_this_episode = 1
+
+        for planet in self.planets:
+            self.update_zoom_factor(planet.x, planet.y)
+
         self.past_ship_trajectories = []
         self.imagined_ship_trajectories = []
         self.estimated_ship_trajectories = []

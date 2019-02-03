@@ -130,13 +130,17 @@ class ManagerConfiguration(Configuration):
                  learning_rate=0.001,
                  max_gradient_norm=10,
                  entropy_factor=0.2,
-                 ponder_price=0.05
+                 ponder_price=0.05,
+                 manage_n_imaginations=True,
+                 manage_planet_filtering=False
                  ):
         self.hidden_layer_sizes = hidden_layer_sizes
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
         self.entropy_factor = entropy_factor
         self.ponder_price = ponder_price
+        self.manage_n_imaginations = manage_n_imaginations
+        self.manage_planet_filtering = manage_planet_filtering
 
 
 class GeneralConfiguration:
@@ -178,6 +182,7 @@ class GeneralConfiguration:
                  agent_ship_random_radial_distance_interval=(0.6, 1.0),
                  planets_random_mass_interval=(0.08, 0.4),
                  planets_random_radial_distance_interval=(0.4, 1.0),
+                 n_secondary_planets=0,
                  history_embedding_length=100,
                  max_imaginations_per_action=3,
                  imagination_strategy=ImaginationStrategies.ONE_STEP,
@@ -196,6 +201,7 @@ class GeneralConfiguration:
         self.agent_ship_random_radial_distance_interval = agent_ship_random_radial_distance_interval
         self.planets_random_mass_interval = planets_random_mass_interval
         self.planets_random_radial_distance_interval = planets_random_radial_distance_interval
+        self.n_secondary_planets = n_secondary_planets
         self.history_embedding_length = history_embedding_length
         self.max_imaginations_per_action = max_imaginations_per_action
         self.imagination_strategy = imagination_strategy

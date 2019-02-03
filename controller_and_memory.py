@@ -121,7 +121,7 @@ class SetController(torch.nn.Module):
                 tensor_from(ship.xy_position) - tensor_from(planet.xy_position))
             ) for planet in self.exp.env.planets]
 
-            if hasattr(self, 'measure_effect_embeddings'):
+            if hasattr(self, 'measure_controller_planet_embedding_introspection'):
                 for i, embedding in enumerate(effect_embeddings):
                     planet = self.exp.env.planets[i]
 
@@ -252,6 +252,10 @@ class Memory(torch.nn.Module):
 
         input_tensor = tensor_from(input_parts)
         history_embedding, self.cell_state = self.lstm_cell(input_tensor.unsqueeze(0), (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state))
+
+        if hasattr(self, 'measure_history_embedding_introspection'):
+            self.embeddings.append(history_embedding.squeeze().detach().numpy())
+            self.n_imagination.append(i_imagination)
 
         return history_embedding.squeeze()
 

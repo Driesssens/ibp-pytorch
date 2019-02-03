@@ -28,15 +28,22 @@ class ImaginationBasedPlanner:
         self.batch_start_time = time.perf_counter()
         self.batch_action_magnitude = Accumulator()
 
+        self.batch_n_planets_in_each_imagination = Accumulator()
+        self.batch_f_planets_in_each_imagination = Accumulator()
+        self.batch_n_planets_in_final_imagination = Accumulator()
+        self.batch_f_planets_in_final_imagination = Accumulator()
+
     def act(self):
         i_imagination = 0
 
         last_imagined_ship_state = self.exp.env.agent_ship
+        last_filtered_planets = self.exp.env.planets
+        last_threshold = None
 
         for _ in range(self.exp.conf.max_imaginations_per_action):
             if self.manager is not None:
-                i_route = self.manager()
-                route = self.exp.conf.routes_of_strategy[i_route]
+                i_route, threshold = self.manager()
+                route = self.exp.conf.routes_of_strategy[i_route] if i_route is not None else Routes.IMAGINE_FROM_REAL_STATE
 
                 if route is Routes.ACT:
                     self.manager.episode_costs.append(0)
@@ -57,9 +64,17 @@ class ImaginationBasedPlanner:
             else:
                 imagined_action = self.dummy_action()
 
+            filtered_planets = self.exp.env.planets
+
+            if self.manager is not None and threshold is not None:
+                print(threshold)
+                filtered_planets = self.imaginator.filter(last_imagined_ship_state, filtered_planets, threshold)
+                self.manager.batch_threshold.add(threshold)
+                last_threshold = threshold
+
             imagined_trajectory, imagined_loss, imagined_fuel_cost = self.imaginator.imagine(
                 last_imagined_ship_state,
-                self.exp.env.planets,
+                filtered_planets,
                 imagined_action,
                 differentiable_trajectory=True
             )
@@ -78,6 +93,14 @@ class ImaginationBasedPlanner:
                     i_imagination=i_imagination,
                 )
 
+            if self.manager is not None and threshold is not None:
+                n_kept_planets = len(filtered_planets)
+                fraction_kept_planets = n_kept_planets / len(self.exp.env.planets)
+                self.manager.episode_costs[-1] *= (n_kept_planets + 1) / (len(self.exp.env.planets) + 1)
+
+                self.batch_n_planets_in_each_imagination.add(n_kept_planets)
+                self.batch_f_planets_in_each_imagination.add(fraction_kept_planets)
+
             last_imagined_ship_state = imagined_trajectory[-1]
 
             i_imagination += 1
@@ -92,7 +115,7 @@ class ImaginationBasedPlanner:
         actual_trajectory, actual_fuel_cost, actual_task_cost = self.perform_action(detached_action)
         new_ship_state = actual_trajectory[-1]
 
-        if self.controller_and_memory is not None and not self.exp.env.last_action_of_episode():
+        if (self.controller_and_memory is not None) and (not self.exp.env.i_action == self.exp.env.n_actions_per_episode):
             self.history_embedding = self.controller_and_memory.memory(
                 route=route_as_vector(self.exp.conf.imagination_strategy, Routes.ACT),
                 actual_state=old_ship_state,
@@ -100,21 +123,27 @@ class ImaginationBasedPlanner:
                 action=selected_action,
                 new_state=new_ship_state,
                 reward=-(actual_task_cost + actual_fuel_cost),
-                i_action=self.exp.env.i_action,
+                i_action=self.exp.env.i_action - 1,
                 i_imagination=i_imagination,
             )
 
         if self.manager is not None:
+            internal_cost = sum(self.manager.episode_costs)
+            self.manager.batch_ponder_cost.add(internal_cost)
+
             external_cost = actual_task_cost + actual_fuel_cost
             self.manager.episode_costs[-1] += external_cost
-            internal_cost = i_imagination * self.exp.conf.manager.ponder_price
-            self.manager.batch_ponder_cost.add(internal_cost)
-            self.manager.batch_task_cost.add(external_cost + internal_cost)
+
+            task_cost = internal_cost + external_cost
+            self.manager.batch_task_cost.add(task_cost)
 
             if hasattr(self, 'measure_performance'):
-                self.manager_mean_task_cost_measurements.append(external_cost + internal_cost)
+                self.manager_mean_task_cost_measurements.append(task_cost)
 
-        self.imaginator.accumulate_loss(actual_trajectory, self.exp.env.planets, detached_action)
+            if last_threshold is not None:
+                self.manager.batch_final_threshold.add(last_threshold)
+
+        self.imaginator.accumulate_loss(actual_trajectory, last_filtered_planets, detached_action)
 
         if self.controller_and_memory is not None:
             estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(old_ship_state, self.exp.env.planets, selected_action, new_ship_state)
@@ -124,6 +153,8 @@ class ImaginationBasedPlanner:
 
         self.exp.env.add_estimated_ship_trajectory(estimated_trajectory)
         self.batch_n_imaginations_per_action.add(i_imagination)
+        self.batch_n_planets_in_final_imagination.add(len(filtered_planets))
+        self.batch_f_planets_in_final_imagination.add(len(filtered_planets) / len(self.exp.env.planets))
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
 
     def perform_action(self, action, compute_cost_independently=True):
@@ -177,6 +208,16 @@ class ImaginationBasedPlanner:
 
         self.exp.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
         self.batch_action_magnitude = Accumulator()
+
+        self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
+        self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
+        self.exp.log("mean_n_planets_in_final_imagination", self.batch_n_planets_in_final_imagination.average())
+        self.exp.log("mean_f_planets_in_final_imagination", self.batch_f_planets_in_final_imagination.average())
+
+        self.batch_n_planets_in_each_imagination = Accumulator()
+        self.batch_f_planets_in_each_imagination = Accumulator()
+        self.batch_n_planets_in_final_imagination = Accumulator()
+        self.batch_f_planets_in_final_imagination = Accumulator()
 
         self.exp.log("get_num_threads", torch.get_num_threads())
 

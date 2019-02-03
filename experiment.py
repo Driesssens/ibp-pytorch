@@ -275,6 +275,7 @@ class Experiment:
             agent_ship_random_radial_distance_interval=self.conf.agent_ship_random_radial_distance_interval,
             planets_random_mass_interval=self.conf.planets_random_mass_interval,
             planets_random_radial_distance_interval=self.conf.planets_random_radial_distance_interval,
+            n_secondary_planets=self.conf.n_secondary_planets
         )
 
     def log(self, name, value):

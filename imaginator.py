@@ -69,13 +69,30 @@ class Imaginator(torch.nn.Module):
 
         return imagined_ship_trajectory, imagined_task_cost, imagined_fuel_cost
 
-    def forward(self, ship: Ship, planets: List[Planet], action):
-        if self.exp.conf.use_ship_mass:
-            effect_embeddings = [self.relation_module(tensor_from(ship.mass, planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in planets]
-        else:
-            effect_embeddings = [self.relation_module(tensor_from(planet.mass, tensor_from(ship.xy_position) - tensor_from(planet.xy_position))) for planet in planets]
+    def filter(self, ship: Ship, planets: List[Planet], threshold):
+        with torch.no_grad():
+            effect_embeddings = [
+                self.relation_module(tensor_from(
+                    ship.mass if self.exp.conf.use_ship_mass else None,
+                    planet.mass,
+                    tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
+                )) for planet in planets
+            ]
 
-        if hasattr(self, 'measure_effect_embeddings') and not isinstance(action, np.ndarray):
+        norms = [effect_embedding.norm().item() for effect_embedding in effect_embeddings]
+
+        return [planet for (planet, norm) in zip(planets, norms) if norm > threshold]
+
+    def forward(self, ship: Ship, planets: List[Planet], action):
+        effect_embeddings = [
+            self.relation_module(tensor_from(
+                ship.mass if self.exp.conf.use_ship_mass else None,
+                planet.mass,
+                tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
+            )) for planet in planets
+        ]
+
+        if hasattr(self, 'measure_imaginator_planet_embedding_introspection') and not isinstance(action, np.ndarray):
             for i, embedding in enumerate(effect_embeddings):
                 planet = self.exp.env.planets[i]
 
@@ -96,21 +113,18 @@ class Imaginator(torch.nn.Module):
                 self.embeddings.append(embedding.detach().numpy())
                 self.metrics.append([planet.mass, actual_radius, gravitational_force_magnitude])
 
-        aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
-
-        if self.exp.conf.use_ship_mass:
-            imagined_velocity = self.object_module(tensor_from(
-                ship.mass,
-                ship.xy_velocity / self.exp.conf.imaginator.velocity_normalization_factor,
-                action / self.exp.conf.imaginator.action_normalization_factor,
-                aggregate_effect_embedding
-            ))
+        if len(effect_embeddings) == 0:
+            aggregate_effect_embedding = torch.zeros(self.exp.conf.imaginator.effect_embedding_length)
         else:
-            imagined_velocity = self.object_module(tensor_from(
-                ship.xy_velocity / self.exp.conf.imaginator.velocity_normalization_factor,
-                action / self.exp.conf.imaginator.action_normalization_factor,
-                aggregate_effect_embedding
-            ))
+            aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
+
+        imagined_velocity = self.object_module(tensor_from(
+            ship.mass if self.exp.conf.use_ship_mass else None,
+            ship.xy_velocity / self.exp.conf.imaginator.velocity_normalization_factor,
+            action / self.exp.conf.imaginator.action_normalization_factor,
+            aggregate_effect_embedding
+        ))
+
         return imagined_velocity
 
     def accumulate_loss(self, ship_trajectory: List[Ship], planets: List[Planet], action):
