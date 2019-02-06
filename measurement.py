@@ -163,4 +163,4 @@ def history_embedding_introspection(model_name, model_folders, n_measurements, n
 
 # imaginator_planet_embedding_introspection("set_controller_bugtest-4p-4imag-nofuel", ('storage', 'home', 'misc'), 100)
 # imaginator_planet_embedding_introspection("setcontroller_effects_not-only_history_no_state", ('storage', 'home', 'misc'), 1000)
-history_embedding_introspection("setcontroller_effects_not-only_history_no_state", ('storage', 'home', 'misc'), 300)
+controller_planet_embedding_introspection("setcontroller_reactive", ('storage', 'home', 'misc'), 300)

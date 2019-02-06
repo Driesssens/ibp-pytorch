@@ -153,9 +153,11 @@ class ImaginationBasedPlanner:
 
         self.exp.env.add_estimated_ship_trajectory(estimated_trajectory)
         self.batch_n_imaginations_per_action.add(i_imagination)
-        self.batch_n_planets_in_final_imagination.add(len(filtered_planets))
-        self.batch_f_planets_in_final_imagination.add(len(filtered_planets) / len(self.exp.env.planets))
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
+
+        if self.manager is not None:
+            self.batch_n_planets_in_final_imagination.add(len(filtered_planets))
+            self.batch_f_planets_in_final_imagination.add(len(filtered_planets) / len(self.exp.env.planets))
 
     def perform_action(self, action, compute_cost_independently=True):
         resultant_fuel_cost = None
@@ -209,10 +211,11 @@ class ImaginationBasedPlanner:
         self.exp.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
         self.batch_action_magnitude = Accumulator()
 
-        self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
-        self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
-        self.exp.log("mean_n_planets_in_final_imagination", self.batch_n_planets_in_final_imagination.average())
-        self.exp.log("mean_f_planets_in_final_imagination", self.batch_f_planets_in_final_imagination.average())
+        if self.manager is not None:
+            self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
+            self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
+            self.exp.log("mean_n_planets_in_final_imagination", self.batch_n_planets_in_final_imagination.average())
+            self.exp.log("mean_f_planets_in_final_imagination", self.batch_f_planets_in_final_imagination.average())
 
         self.batch_n_planets_in_each_imagination = Accumulator()
         self.batch_f_planets_in_each_imagination = Accumulator()
