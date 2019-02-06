@@ -12,7 +12,12 @@ from spaceship_environment import SpaceshipEnvironment
 
 class Experiment:
     @classmethod
-    def new(cls, configuration: GeneralConfiguration, name, path=('storage', 'home', 'misc',)):
+    def new(cls,
+            configuration: GeneralConfiguration,
+            name,
+            path=('storage', 'home', 'misc',),
+            pretrained_imaginator=None
+            ):
         new_experiment = cls()
         new_experiment.name = name
         new_experiment.path = path
@@ -22,6 +27,11 @@ class Experiment:
 
         if configuration.imaginator is not None:
             agent.imaginator = configuration.imaginator.the_class(new_experiment)
+        elif pretrained_imaginator is not None:
+            loaded = cls.load(pretrained_imaginator[0], pretrained_imaginator[1])
+            new_experiment.conf.imaginator = loaded.conf.imaginator
+            agent.imaginator = loaded.agent.imaginator
+            agent.imaginator.exp = new_experiment
 
         if configuration.controller is not None:
             agent.controller_and_memory = configuration.controller.the_class(new_experiment)

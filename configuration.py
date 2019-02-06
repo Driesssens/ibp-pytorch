@@ -2,7 +2,7 @@ from enum import Enum, IntEnum
 import numpy as np
 from typing import Union
 
-from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory
+from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory, SetControllerAndSetMemory
 from imaginator import Imaginator
 from manager import Manager
 
@@ -97,6 +97,41 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
         self.use_reward = use_reward
         self.use_i_action = use_i_action
         self.use_i_imagination = use_i_imagination
+
+
+class SetControllerAndSetMemoryConfiguration(Configuration):
+    the_class = SetControllerAndSetMemory
+
+    def __init__(self,
+                 learning_rate=0.003,
+                 max_gradient_norm=10,
+                 object_function_layer_sizes=(150, 150, 150, 150),
+                 object_embedding_length=50,
+                 aggregate_function_layer_sizes=(100,),
+                 aggregate_embedding_length=50,
+                 control_module_layer_sizes=(100,),
+                 velocity_normalization_factor=1,
+                 immediate_mode=True,
+                 use_action=True,
+                 use_i_imagination=True,
+                 hide_ship_state=True
+                 ):
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.immediate_mode = immediate_mode
+
+        self.effect_embedding_length = 0
+        self.hide_ship_state = hide_ship_state
+        self.control_module_layer_sizes = control_module_layer_sizes
+
+        self.object_function_layer_sizes = object_function_layer_sizes
+        self.aggregate_function_layer_sizes = aggregate_function_layer_sizes
+        self.object_embedding_length = object_embedding_length
+        self.aggregate_embedding_length = aggregate_embedding_length
+
+        self.velocity_normalization_factor = velocity_normalization_factor
+        self.use_i_imagination = use_i_imagination
+        self.use_action = use_action
 
 
 class ImaginatorConfiguration(Configuration):
@@ -209,7 +244,7 @@ class GeneralConfiguration:
         self.dummy_action_magnitude_interval = dummy_action_magnitude_interval
         self.use_ship_mass = use_ship_mass
         self.imaginator = imaginator  # type: ImaginatorConfiguration
-        self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration]
+        self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration, SetControllerAndSetMemoryConfiguration]
         self.manager = manager  # type: ManagerConfiguration
 
     @property

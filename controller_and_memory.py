@@ -1,6 +1,6 @@
 from utilities import *
 from abc import ABC, abstractmethod
-from spaceship_environment import cartesian2polar, polar2cartesian
+from spaceship_environment import cartesian2polar, polar2cartesian, Planet
 
 if False:
     from experiment import Experiment
@@ -85,6 +85,16 @@ class SetControllerAndFlatMemory(AbstractControllerAndMemory):
 
         self.controller = SetController(self.exp)
         self.memory = Memory(self.exp)
+
+        self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.learning_rate)
+
+
+class SetControllerAndSetMemory(AbstractControllerAndMemory):
+    def __init__(self, experiment: 'Experiment'):
+        super().__init__(experiment)
+
+        self.controller = SetController(self.exp)
+        self.memory = SetMemory(self.exp)
 
         self.optimizer = torch.optim.Adam(list(self.controller.parameters()) + list(self.memory.parameters()), self.exp.conf.controller.learning_rate)
 
@@ -252,6 +262,76 @@ class Memory(torch.nn.Module):
 
         input_tensor = tensor_from(input_parts)
         history_embedding, self.cell_state = self.lstm_cell(input_tensor.unsqueeze(0), (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state))
+
+        if hasattr(self, 'measure_history_embedding_introspection'):
+            self.embeddings.append(history_embedding.squeeze().detach().numpy())
+            self.n_imagination.append(i_imagination)
+
+        return history_embedding.squeeze()
+
+    def reset_state(self):
+        self.cell_state = torch.zeros(self.cell_state.shape)
+
+
+class SetMemory(torch.nn.Module):
+    def __init__(self, experiment: 'Experiment'):
+        super().__init__()
+
+        self.exp = experiment
+
+        object_vector_length = 7  # type (2) + mass (1) + position (2) + velocity (2)
+
+        self.object_function = make_mlp_with_relu(
+            input_size=object_vector_length,
+            hidden_layer_sizes=self.exp.conf.controller.object_function_layer_sizes,
+            output_size=self.exp.conf.controller.object_embedding_length,
+            final_relu=False
+        )
+
+        if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
+            self.aggregate_function = make_mlp_with_relu(
+                input_size=self.exp.conf.controller.object_embedding_length,
+                hidden_layer_sizes=self.exp.conf.controller.aggregate_function_layer_sizes,
+                output_size=self.exp.conf.controller.aggregate_embedding_length,
+                final_relu=False
+            )
+
+        action_vector_length = 2  # ship xy force
+
+        lstm_input_vector_length = sum([
+            self.exp.conf.controller.aggregate_embedding_length if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0 else self.exp.conf.controller.object_embedding_length,
+            action_vector_length if self.exp.conf.controller.use_action else 0,
+            1 if self.exp.conf.controller.use_i_imagination else 0,
+        ])
+
+        self.lstm_cell = torch.nn.LSTMCell(lstm_input_vector_length, self.exp.conf.history_embedding_length)
+        self.cell_state = torch.zeros(1, self.exp.conf.history_embedding_length)
+
+    def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination):
+        objects = [new_state] + self.exp.env.planets
+        object_tensors = [
+            tensor_from(
+                0 if isinstance(obj, Planet) else 1,
+                1 if isinstance(obj, Planet) else 0,
+                obj.mass,
+                obj.encode_state(False)
+            ) for obj in objects
+        ]
+
+        object_embeddings = [self.object_function(object_tensor) for object_tensor in object_tensors]
+
+        aggregate_embedding = torch.mean(torch.stack(object_embeddings), dim=0)
+        if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
+            aggregate_embedding = self.aggregate_function(torch.mean(torch.stack(object_embeddings), dim=0))
+
+        history_embedding, self.cell_state = self.lstm_cell(
+            tensor_from(
+                action if self.exp.conf.controller.use_action else None,
+                aggregate_embedding,
+                i_imagination if self.exp.conf.controller.use_i_imagination else None
+            ).unsqueeze(0),
+            (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state)
+        )
 
         if hasattr(self, 'measure_history_embedding_introspection'):
             self.embeddings.append(history_embedding.squeeze().detach().numpy())
