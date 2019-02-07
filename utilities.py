@@ -27,7 +27,7 @@ def tensor_from(*args):
     return torch.cat(tensor_parts)
 
 
-def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu):
+def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu, selu=False):
     if isinstance(hidden_layer_sizes, tuple):
         hidden_layer_sizes = list(hidden_layer_sizes)
 
@@ -40,7 +40,7 @@ def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu):
 
         layers += [
             torch.nn.Linear(layer_sizes[i_input_layer], layer_sizes[i_output_layer]),
-            torch.nn.ReLU()
+            torch.nn.SELU() if selu else torch.nn.ReLU(),
         ]
 
     if not final_relu:

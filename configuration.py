@@ -78,7 +78,8 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
                  use_new_state=True,
                  use_reward=True,
                  use_i_action=True,
-                 use_i_imagination=True
+                 use_i_imagination=True,
+                 selu=False
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -98,6 +99,8 @@ class SetControllerAndFlatMemoryConfiguration(Configuration):
         self.use_i_action = use_i_action
         self.use_i_imagination = use_i_imagination
 
+        self.selu = selu
+
 
 class SetControllerAndSetMemoryConfiguration(Configuration):
     the_class = SetControllerAndSetMemory
@@ -114,7 +117,9 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  immediate_mode=True,
                  use_action=True,
                  use_i_imagination=True,
-                 hide_ship_state=True
+                 hide_ship_state=True,
+                 selu=False,
+                 effect_embedding_length=None,  # do not use
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -132,6 +137,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.velocity_normalization_factor = velocity_normalization_factor
         self.use_i_imagination = use_i_imagination
         self.use_action = use_action
+
+        self.selu = selu
 
 
 class ImaginatorConfiguration(Configuration):

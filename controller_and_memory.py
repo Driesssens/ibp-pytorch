@@ -113,14 +113,16 @@ class SetController(torch.nn.Module):
                 input_size=(1 if self.exp.conf.use_ship_mass else 0) + 1 + 2,  # ship mass + planet mass + difference vector between ship and planet xy position
                 hidden_layer_sizes=self.exp.conf.controller.relation_module_layer_sizes,
                 output_size=self.exp.conf.controller.effect_embedding_length,
-                final_relu=False
+                final_relu=False,
+                selu=self.exp.conf.controller.selu
             )
 
         self.control_module = make_mlp_with_relu(
             input_size=(1 if self.exp.conf.use_ship_mass else 0) + (2 + 2 if not self.exp.conf.controller.hide_ship_state else 0) + self.exp.conf.controller.effect_embedding_length + history_embedding_length,  # ship mass + ship xy position + ship xy velocity + effect embedding + history embedding
             hidden_layer_sizes=self.exp.conf.controller.control_module_layer_sizes,
             output_size=action_vector_length,
-            final_relu=False
+            final_relu=False,
+            selu=self.exp.conf.controller.selu
         )
 
     def forward(self, ship):
@@ -285,7 +287,8 @@ class SetMemory(torch.nn.Module):
             input_size=object_vector_length,
             hidden_layer_sizes=self.exp.conf.controller.object_function_layer_sizes,
             output_size=self.exp.conf.controller.object_embedding_length,
-            final_relu=False
+            final_relu=False,
+            selu=self.exp.conf.controller.selu
         )
 
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
@@ -293,7 +296,8 @@ class SetMemory(torch.nn.Module):
                 input_size=self.exp.conf.controller.object_embedding_length,
                 hidden_layer_sizes=self.exp.conf.controller.aggregate_function_layer_sizes,
                 output_size=self.exp.conf.controller.aggregate_embedding_length,
-                final_relu=False
+                final_relu=False,
+                selu=self.exp.conf.controller.selu
             )
 
         action_vector_length = 2  # ship xy force
@@ -319,6 +323,15 @@ class SetMemory(torch.nn.Module):
         ]
 
         object_embeddings = [self.object_function(object_tensor) for object_tensor in object_tensors]
+
+        if hasattr(self, 'measure_setmemory_object_embedding_introspection'):
+            for i, embedding in enumerate(object_embeddings):
+                obj = objects[i]
+                radius = np.linalg.norm(obj.xy_position)
+                is_planet = isinstance(obj, Planet)
+
+                self.embeddings.append(embedding.detach().numpy())
+                self.metrics.append([is_planet, obj.mass, radius, obj.x, obj.y])
 
         aggregate_embedding = torch.mean(torch.stack(object_embeddings), dim=0)
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:

@@ -1,5 +1,5 @@
 from experiment import Experiment
-from controller_and_memory import SetController
+from controller_and_memory import SetController, SetMemory
 import pandas as pd
 from sklearn.decomposition import PCA
 import numpy as np
@@ -161,6 +161,50 @@ def history_embedding_introspection(model_name, model_folders, n_measurements, n
         # plt.savefig(os.path.join(*(folders + ['{}_histogram.png'.format(metric)])))
 
 
+def setmemory_object_embedding_introspection(model_name, model_folders, n_measurements, name=None):
+    experiment = Experiment.load(model_name, model_folders)
+    assert isinstance(experiment.agent.controller_and_memory.memory, SetMemory)
+
+    if name is None:
+        name = "{}_{}".format(model_name, datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"))
+
+    folders = ['measurements', 'setmemory_object_embedding_introspection', name]
+    os.makedirs(os.path.join(*folders))
+
+    experiment.conf.max_imaginations_per_action = 0
+
+    experiment.agent.controller_and_memory.memory.measure_setmemory_object_embedding_introspection = True
+    experiment.agent.controller_and_memory.memory.embeddings = []
+    experiment.agent.controller_and_memory.memory.metrics = []
+
+    experiment.evaluate(n_measurements)
+
+    embedding_statistics = analyze_embeddings(experiment.agent.controller_and_memory.controller.embeddings, 3, True)
+
+    metrics = pd.DataFrame(
+        experiment.agent.controller_and_memory.controller.metrics,
+        columns=['isplan', 'mass', 'radius', 'x', 'y']
+    )
+
+    results = pd.concat([embedding_statistics, metrics], axis=1)
+
+    for metric in ['norm', 'pc1', 'pc2', 'pc3']:
+        scatter_plot = results.plot.scatter(
+            x='radius',
+            y=metric,
+            c='isplan',
+            s=(results['mass'] ** 2) * 250,
+            colormap='viridis',
+        ).get_figure()
+
+        scatter_plot.savefig(os.path.join(*(folders + ['scatter_{}.png'.format(metric)])))
+
+    import matplotlib.pyplot as plt
+    pd.plotting.scatter_matrix(results)
+    plt.savefig(os.path.join(*(folders + ['matrix_scatter'])))
+
+
 # imaginator_planet_embedding_introspection("set_controller_bugtest-4p-4imag-nofuel", ('storage', 'home', 'misc'), 100)
 # imaginator_planet_embedding_introspection("setcontroller_effects_not-only_history_no_state", ('storage', 'home', 'misc'), 1000)
-controller_planet_embedding_introspection("setcontroller_reactive", ('storage', 'home', 'misc'), 300)
+# controller_planet_embedding_introspection("setcontroller_reactive", ('storage', 'home', 'misc'), 300)
+setmemory_object_embedding_introspection("use_i_imagination_False-use_action_True-hide_ship_state_True-aggregate_layer_False-id_9", ('storage', 'lisa', 'prototype'), 300)
