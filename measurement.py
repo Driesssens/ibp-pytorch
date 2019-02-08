@@ -93,6 +93,7 @@ def controller_planet_embedding_introspection(model_name, model_folders, n_measu
 
 
 def analyze_embeddings(embeddings, n_pc=3, print_variation=False):
+    print(embeddings)
     embedding_matrix = np.stack(embeddings)
 
     if print_variation:
@@ -171,7 +172,7 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
     folders = ['measurements', 'setmemory_object_embedding_introspection', name]
     os.makedirs(os.path.join(*folders))
 
-    experiment.conf.max_imaginations_per_action = 0
+    experiment.conf.max_imaginations_per_action = 1
 
     experiment.agent.controller_and_memory.memory.measure_setmemory_object_embedding_introspection = True
     experiment.agent.controller_and_memory.memory.embeddings = []
@@ -179,10 +180,10 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
 
     experiment.evaluate(n_measurements)
 
-    embedding_statistics = analyze_embeddings(experiment.agent.controller_and_memory.controller.embeddings, 3, True)
+    embedding_statistics = analyze_embeddings(experiment.agent.controller_and_memory.memory.embeddings, 3, True)
 
     metrics = pd.DataFrame(
-        experiment.agent.controller_and_memory.controller.metrics,
+        experiment.agent.controller_and_memory.memory.metrics,
         columns=['isplan', 'mass', 'radius', 'x', 'y']
     )
 
@@ -195,6 +196,7 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
             c='isplan',
             s=(results['mass'] ** 2) * 250,
             colormap='viridis',
+            logy=metric == 'norm'
         ).get_figure()
 
         scatter_plot.savefig(os.path.join(*(folders + ['scatter_{}.png'.format(metric)])))
@@ -207,4 +209,4 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
 # imaginator_planet_embedding_introspection("set_controller_bugtest-4p-4imag-nofuel", ('storage', 'home', 'misc'), 100)
 # imaginator_planet_embedding_introspection("setcontroller_effects_not-only_history_no_state", ('storage', 'home', 'misc'), 1000)
 # controller_planet_embedding_introspection("setcontroller_reactive", ('storage', 'home', 'misc'), 300)
-setmemory_object_embedding_introspection("use_i_imagination_False-use_action_True-hide_ship_state_True-aggregate_layer_False-id_9", ('storage', 'lisa', 'prototype'), 300)
+setmemory_object_embedding_introspection("use_i_imagination_True-use_action_False-hide_ship_state_False-aggregate_layer_False-id_14", ('storage', 'lisa', 'prototype'), 500)

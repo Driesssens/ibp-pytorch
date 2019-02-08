@@ -119,6 +119,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  use_i_imagination=True,
                  hide_ship_state=True,
                  selu=False,
+                 relu_after_aggregate_function=False,
+                 memoryless=False,
                  effect_embedding_length=None,  # do not use
                  ):
         self.learning_rate = learning_rate
@@ -137,6 +139,9 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.velocity_normalization_factor = velocity_normalization_factor
         self.use_i_imagination = use_i_imagination
         self.use_action = use_action
+
+        self.relu_after_aggregate_function = relu_after_aggregate_function
+        self.memoryless = memoryless
 
         self.selu = selu
 
@@ -244,7 +249,7 @@ class GeneralConfiguration:
         self.planets_random_mass_interval = planets_random_mass_interval
         self.planets_random_radial_distance_interval = planets_random_radial_distance_interval
         self.n_secondary_planets = n_secondary_planets
-        self.history_embedding_length = history_embedding_length
+        self._history_embedding_length = history_embedding_length
         self.max_imaginations_per_action = max_imaginations_per_action
         self.imagination_strategy = imagination_strategy
         self.n_episodes_per_batch = n_episodes_per_batch
@@ -257,6 +262,19 @@ class GeneralConfiguration:
     @property
     def routes_of_strategy(self):
         return routes_of_strategy[self.imagination_strategy]
+
+    @property
+    def history_embedding_length(self):
+        if self.controller is not None:
+            if hasattr(self.controller, 'memoryless'):
+                if self.controller.memoryless:
+                    return sum([
+                        self.controller.aggregate_embedding_length if len(self.controller.aggregate_function_layer_sizes) > 0 else self.controller.object_embedding_length,
+                        2 if self.controller.use_action else 0,
+                        1 if self.controller.use_i_imagination else 0,
+                    ])
+
+        return self._history_embedding_length
 
 
 class Routes(IntEnum):

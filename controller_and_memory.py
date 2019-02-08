@@ -296,19 +296,21 @@ class SetMemory(torch.nn.Module):
                 input_size=self.exp.conf.controller.object_embedding_length,
                 hidden_layer_sizes=self.exp.conf.controller.aggregate_function_layer_sizes,
                 output_size=self.exp.conf.controller.aggregate_embedding_length,
-                final_relu=False,
+                final_relu=self.exp.conf.controller.relu_after_aggregate_function,
                 selu=self.exp.conf.controller.selu
             )
 
         action_vector_length = 2  # ship xy force
 
-        lstm_input_vector_length = sum([
-            self.exp.conf.controller.aggregate_embedding_length if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0 else self.exp.conf.controller.object_embedding_length,
-            action_vector_length if self.exp.conf.controller.use_action else 0,
-            1 if self.exp.conf.controller.use_i_imagination else 0,
-        ])
+        if not self.exp.conf.controller.memoryless:
+            lstm_input_vector_length = sum([
+                self.exp.conf.controller.aggregate_embedding_length if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0 else self.exp.conf.controller.object_embedding_length,
+                action_vector_length if self.exp.conf.controller.use_action else 0,
+                1 if self.exp.conf.controller.use_i_imagination else 0,
+            ])
 
-        self.lstm_cell = torch.nn.LSTMCell(lstm_input_vector_length, self.exp.conf.history_embedding_length)
+            self.lstm_cell = torch.nn.LSTMCell(lstm_input_vector_length, self.exp.conf.history_embedding_length)
+
         self.cell_state = torch.zeros(1, self.exp.conf.history_embedding_length)
 
     def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination):
@@ -331,26 +333,33 @@ class SetMemory(torch.nn.Module):
                 is_planet = isinstance(obj, Planet)
 
                 self.embeddings.append(embedding.detach().numpy())
-                self.metrics.append([is_planet, obj.mass, radius, obj.x, obj.y])
+                self.metrics.append([int(is_planet), obj.mass, radius, obj.x, obj.y])
 
         aggregate_embedding = torch.mean(torch.stack(object_embeddings), dim=0)
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
             aggregate_embedding = self.aggregate_function(torch.mean(torch.stack(object_embeddings), dim=0))
 
-        history_embedding, self.cell_state = self.lstm_cell(
-            tensor_from(
+        lstm_input = tensor_from(
                 action if self.exp.conf.controller.use_action else None,
                 aggregate_embedding,
                 i_imagination if self.exp.conf.controller.use_i_imagination else None
-            ).unsqueeze(0),
-            (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state)
-        )
+            )
+
+        if self.exp.conf.controller.memoryless:
+            history_embedding = lstm_input
+        else:
+            history_embedding, self.cell_state = self.lstm_cell(
+                lstm_input.unsqueeze(0),
+                (self.exp.agent.history_embedding.unsqueeze(0), self.cell_state)
+            )
+
+            history_embedding = history_embedding.squeeze()
 
         if hasattr(self, 'measure_history_embedding_introspection'):
-            self.embeddings.append(history_embedding.squeeze().detach().numpy())
+            self.embeddings.append(history_embedding.detach().numpy())
             self.n_imagination.append(i_imagination)
 
-        return history_embedding.squeeze()
+        return history_embedding
 
     def reset_state(self):
         self.cell_state = torch.zeros(self.cell_state.shape)
