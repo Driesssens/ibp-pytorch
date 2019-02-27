@@ -1,6 +1,7 @@
 from utilities import *
 from abc import ABC, abstractmethod
 from spaceship_environment import cartesian2polar, polar2cartesian, Planet
+from copy import copy
 
 if False:
     from experiment import Experiment
@@ -313,18 +314,38 @@ class SetMemory(torch.nn.Module):
 
         self.cell_state = torch.zeros(1, self.exp.conf.history_embedding_length)
 
-    def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination):
-        objects = [new_state] + self.exp.env.planets
-        object_tensors = [
-            tensor_from(
-                0 if isinstance(obj, Planet) else 1,
-                1 if isinstance(obj, Planet) else 0,
-                obj.mass,
-                obj.encode_state(False)
-            ) for obj in objects
-        ]
+    def get_object_embeddings(self, objects):
+        objects = copy(objects)
 
-        object_embeddings = [self.object_function(object_tensor) for object_tensor in object_tensors]
+        for i in range(len(objects)):
+            if objects[i] is not None:
+                tensor = tensor_from(
+                    0 if isinstance(objects[i], Planet) else 1,
+                    1 if isinstance(objects[i], Planet) else 0,
+                    objects[i].mass,
+                    objects[i].encode_state(False)
+                )
+
+                embedding = self.object_function(tensor)
+                objects[i] = embedding
+
+        return objects
+
+    def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination, filter_indices=None):
+        objects = [new_state] + self.exp.env.planets
+
+        if filter_indices is not None:
+            objects = [objekt for (objekt, filter_value) in zip(objects, filter_indices) if filter_value]
+
+        if hasattr(self, 'measure_performance_under_more_and_unobserved_planets'):
+            assert filter_indices is None
+
+            if self.measure_performance_under_more_and_unobserved_planets == 'only_ship_observed':
+                objects = [new_state]
+            elif self.measure_performance_under_more_and_unobserved_planets == 'extra_planets_unobserved':
+                objects = [new_state] + self.exp.env.planets[:-1]
+
+        object_embeddings = self.get_object_embeddings(objects)
 
         if hasattr(self, 'measure_setmemory_object_embedding_introspection'):
             for i, embedding in enumerate(object_embeddings):
@@ -335,15 +356,19 @@ class SetMemory(torch.nn.Module):
                 self.embeddings.append(embedding.detach().numpy())
                 self.metrics.append([int(is_planet), obj.mass, radius, obj.x, obj.y])
 
-        aggregate_embedding = torch.mean(torch.stack(object_embeddings), dim=0)
+        if len(object_embeddings) == 0:
+            aggregate_embedding = torch.zeros(self.exp.conf.controller.object_embedding_length)
+        else:
+            aggregate_embedding = torch.mean(torch.stack(object_embeddings), dim=0)
+
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
             aggregate_embedding = self.aggregate_function(torch.mean(torch.stack(object_embeddings), dim=0))
 
         lstm_input = tensor_from(
-                action if self.exp.conf.controller.use_action else None,
-                aggregate_embedding,
-                i_imagination if self.exp.conf.controller.use_i_imagination else None
-            )
+            action if self.exp.conf.controller.use_action else None,
+            aggregate_embedding,
+            i_imagination if self.exp.conf.controller.use_i_imagination else None
+        )
 
         if self.exp.conf.controller.memoryless:
             history_embedding = lstm_input

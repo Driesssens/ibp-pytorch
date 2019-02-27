@@ -31,7 +31,10 @@ def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu, 
     if isinstance(hidden_layer_sizes, tuple):
         hidden_layer_sizes = list(hidden_layer_sizes)
 
-    layer_sizes = [input_size] + hidden_layer_sizes + [output_size]
+    layer_sizes = [input_size] + hidden_layer_sizes
+
+    if output_size > 0:
+        layer_sizes += [output_size]
 
     layers = []
 

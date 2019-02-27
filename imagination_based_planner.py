@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from controller_and_memory import ControllerAndMemory
 from imaginator import Imaginator
-from manager import Manager
+from manager import Manager, PPOManager
 from spaceship_environment import polar2cartesian
 from configuration import route_as_vector, Routes
 from utilities import *
@@ -39,10 +39,11 @@ class ImaginationBasedPlanner:
         last_imagined_ship_state = self.exp.env.agent_ship
         last_filtered_planets = self.exp.env.planets
         last_threshold = None
+        filter_indices = None
 
         for _ in range(self.exp.conf.max_imaginations_per_action):
-            if self.manager is not None:
-                i_route, threshold = self.manager()
+            if self.has_normal_manager():
+                i_route, threshold = self.manager.act()
                 route = self.exp.conf.routes_of_strategy[i_route] if i_route is not None else Routes.IMAGINE_FROM_REAL_STATE
 
                 if route is Routes.ACT:
@@ -66,7 +67,7 @@ class ImaginationBasedPlanner:
 
             filtered_planets = self.exp.env.planets
 
-            if self.manager is not None and threshold is not None:
+            if self.has_normal_manager() and threshold is not None:
                 print(threshold)
                 filtered_planets = self.imaginator.filter(last_imagined_ship_state, filtered_planets, threshold)
                 self.manager.batch_threshold.add(threshold)
@@ -81,6 +82,23 @@ class ImaginationBasedPlanner:
 
             self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
 
+            if self.has_ppo_manager():
+                objects = [imagined_trajectory[-1]] + self.exp.env.planets
+
+                if filter_indices is None:
+                    filter_indices = [True] * len(objects)
+
+                for i in range(len(filter_indices)):
+                    if not filter_indices[i]:
+                        objects[i] = None
+
+                object_embeddings = self.controller_and_memory.memory.get_object_embeddings(objects)
+
+                threshold = self.manager.act(list(filter(lambda x: x is not None, object_embeddings)))
+                last_threshold = threshold
+
+                filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
+
             if self.controller_and_memory is not None:
                 self.history_embedding = self.controller_and_memory.memory(
                     route=route_as_vector(self.exp.conf.imagination_strategy, route),
@@ -91,15 +109,23 @@ class ImaginationBasedPlanner:
                     reward=-(imagined_loss.unsqueeze(0) + imagined_fuel_cost),
                     i_action=self.exp.env.i_action,
                     i_imagination=i_imagination,
+                    filter_indices=filter_indices
                 )
 
-            if self.manager is not None and threshold is not None:
+            if self.has_normal_manager() and threshold is not None:
                 n_kept_planets = len(filtered_planets)
                 fraction_kept_planets = n_kept_planets / len(self.exp.env.planets)
                 self.manager.episode_costs[-1] *= (n_kept_planets + 1) / (len(self.exp.env.planets) + 1)
 
                 self.batch_n_planets_in_each_imagination.add(n_kept_planets)
                 self.batch_f_planets_in_each_imagination.add(fraction_kept_planets)
+
+            if self.has_ppo_manager():
+                n_kept_objects = len(list(filter(lambda x: x, filter_indices)))  # count amount of True
+                fraction_kept_objects = n_kept_objects / len(filter_indices)
+                self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * (n_kept_objects + 1) / (len(filter_indices) + 1))
+                self.batch_n_planets_in_each_imagination.add(n_kept_objects)
+                self.batch_f_planets_in_each_imagination.add(fraction_kept_objects)
 
             last_imagined_ship_state = imagined_trajectory[-1]
 
@@ -195,6 +221,12 @@ class ImaginationBasedPlanner:
             self.controller_and_memory.memory.reset_state()
 
         self.i_episode += 1
+
+    def has_normal_manager(self):
+        return self.manager is not None and isinstance(self.manager, Manager)
+
+    def has_ppo_manager(self):
+        return self.manager is not None and isinstance(self.manager, PPOManager)
 
     def finish_batch(self):
         self.imaginator.finish_batch()

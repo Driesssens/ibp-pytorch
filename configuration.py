@@ -4,7 +4,7 @@ from typing import Union
 
 from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory, SetControllerAndSetMemory
 from imaginator import Imaginator
-from manager import Manager
+from manager import Manager, PPOManager
 
 
 class ImaginationStrategies(Enum):
@@ -190,6 +190,39 @@ class ManagerConfiguration(Configuration):
         self.manage_planet_filtering = manage_planet_filtering
 
 
+class PPOManagerConfiguration(Configuration):
+    the_class = PPOManager
+
+    def __init__(self,
+                 hidden_layer_sizes=(64, 64),
+                 initial_gaussian_stddev=1,
+                 learning_rate=0.001,
+                 max_gradient_norm=10,
+                 ponder_price=0.05,
+                 n_ppo_epochs=5,
+                 ppo_clip=0.2,
+                 c_value_estimation_loss=0.5,
+                 lower_bounded_actions=True,
+                 upper_bounded_actions=True,
+                 feature_average_norm=True,
+                 feature_cumulative_norm=True,
+                 feature_history_embedding=True
+                 ):
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.initial_gaussian_stddev = initial_gaussian_stddev
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.ponder_price = ponder_price
+        self.n_ppo_epochs = n_ppo_epochs
+        self.ppo_clip = ppo_clip
+        self.c_value_estimation_loss = c_value_estimation_loss
+        self.lower_bounded_actions = lower_bounded_actions
+        self.upper_bounded_actions = upper_bounded_actions
+        self.feature_average_norm = feature_average_norm
+        self.feature_cumulative_norm = feature_cumulative_norm
+        self.feature_history_embedding = feature_history_embedding
+
+
 class GeneralConfiguration:
     @classmethod
     def from_dict(cls, general_settings, imaginator_settings=None, controller_settings=None, manager_settings=None) -> 'GeneralConfiguration':
@@ -230,7 +263,8 @@ class GeneralConfiguration:
                  planets_random_mass_interval=(0.08, 0.4),
                  planets_random_radial_distance_interval=(0.4, 1.0),
                  n_secondary_planets=0,
-                 history_embedding_length=100,
+                 history_embedding_length=None,
+                 _history_embedding_length=100,
                  max_imaginations_per_action=3,
                  imagination_strategy=ImaginationStrategies.ONE_STEP,
                  n_episodes_per_batch=20,
@@ -249,7 +283,7 @@ class GeneralConfiguration:
         self.planets_random_mass_interval = planets_random_mass_interval
         self.planets_random_radial_distance_interval = planets_random_radial_distance_interval
         self.n_secondary_planets = n_secondary_planets
-        self._history_embedding_length = history_embedding_length
+        self._history_embedding_length = _history_embedding_length if history_embedding_length is None else history_embedding_length
         self.max_imaginations_per_action = max_imaginations_per_action
         self.imagination_strategy = imagination_strategy
         self.n_episodes_per_batch = n_episodes_per_batch
@@ -257,7 +291,7 @@ class GeneralConfiguration:
         self.use_ship_mass = use_ship_mass
         self.imaginator = imaginator  # type: ImaginatorConfiguration
         self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration, SetControllerAndSetMemoryConfiguration]
-        self.manager = manager  # type: ManagerConfiguration
+        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration]
 
     @property
     def routes_of_strategy(self):

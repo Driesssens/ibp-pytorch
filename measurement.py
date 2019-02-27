@@ -167,7 +167,7 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
     assert isinstance(experiment.agent.controller_and_memory.memory, SetMemory)
 
     if name is None:
-        name = "{}_{}".format(model_name, datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"))
+        name = "{}_{}".format(datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"), model_name)
 
     folders = ['measurements', 'setmemory_object_embedding_introspection', name]
     os.makedirs(os.path.join(*folders))
@@ -206,7 +206,45 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
     plt.savefig(os.path.join(*(folders + ['matrix_scatter'])))
 
 
+def performance_under_more_and_unobserved_planets(model_name, model_folders, n_measurements, name=None):
+    if name is None:
+        name = "{}_{}.{}".format(datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"), '.'.join(model_folders), model_name)
+
+    folders = ['measurements', 'performance_under_more_and_unobserved_planets', name]
+    os.makedirs(os.path.join(*folders))
+
+    for mode in ('normal', 'only_ship_observed', 'extra_planets', 'extra_planets_unobserved'):
+
+        experiment = Experiment.load(model_name, model_folders)
+        assert isinstance(experiment.agent.controller_and_memory.memory, SetMemory)
+
+        experiment.agent.measure_performance = True
+        experiment.agent.controller_and_memory_mean_task_cost_measurements = []
+        experiment.agent.imaginator_mean_final_position_error_measurements = []
+
+        experiment.agent.controller_and_memory.measure_performance_under_more_and_unobserved_planets = mode
+
+        if mode == 'extra_planets' or mode == 'extra_planets_unobserved':
+            experiment.conf.n_secondary_planets += 1
+
+        experiment.evaluate(n_measurements)
+
+        imaginator_performance = np.stack(experiment.agent.controller_and_memory_mean_task_cost_measurements)
+
+        results = pd.Series(imaginator_performance)
+
+        import matplotlib.pyplot as plt
+        results.plot.hist(grid=True)
+        plt.title('{}. #{}. mean: {}'.format(mode, n_measurements, imaginator_performance.mean()))
+        plt.ylabel('controller mean task cost')
+
+        plt.savefig(os.path.join(*(folders + ['controller_task_cost_on_{}'.format(mode)])))
+
+
 # imaginator_planet_embedding_introspection("set_controller_bugtest-4p-4imag-nofuel", ('storage', 'home', 'misc'), 100)
 # imaginator_planet_embedding_introspection("setcontroller_effects_not-only_history_no_state", ('storage', 'home', 'misc'), 1000)
 # controller_planet_embedding_introspection("setcontroller_reactive", ('storage', 'home', 'misc'), 300)
-setmemory_object_embedding_introspection("use_i_imagination_True-use_action_False-hide_ship_state_False-aggregate_layer_False-id_14", ('storage', 'lisa', 'prototype'), 500)
+# setmemory_object_embedding_introspection("selu_False-embsize_50-use_i_imagination_False-use_action_True-hide_ship_state_True-agg_raw-id_5", ('storage', 'lisa', 'memoryless'), 500)
+
+# performance_under_more_and_unobserved_planets("use_i_imagination_False-use_action_True-hide_ship_state_True-aggregate_layer_False-id_9", ('storage', 'lisa', 'prototype'), 500)
+performance_under_more_and_unobserved_planets("selu_False-use_action_True-v_3-id_7", ('storage', 'lisa', 'prototype2'), 500)

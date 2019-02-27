@@ -16,7 +16,8 @@ class Experiment:
             configuration: GeneralConfiguration,
             name,
             path=('storage', 'home', 'misc',),
-            pretrained_imaginator=None
+            pretrained_imaginator=None,
+            pretrained_controller=None
             ):
         new_experiment = cls()
         new_experiment.name = name
@@ -24,6 +25,9 @@ class Experiment:
         new_experiment.conf = configuration
 
         agent = ImaginationBasedPlanner(new_experiment)
+
+        if pretrained_controller is not None and pretrained_imaginator is None:
+            pretrained_imaginator = pretrained_controller
 
         if configuration.imaginator is not None:
             agent.imaginator = configuration.imaginator.the_class(new_experiment)
@@ -35,6 +39,13 @@ class Experiment:
 
         if configuration.controller is not None:
             agent.controller_and_memory = configuration.controller.the_class(new_experiment)
+        elif pretrained_controller is not None:
+            loaded = cls.load(pretrained_imaginator[0], pretrained_imaginator[1])
+            new_experiment.conf.controller = loaded.conf.controller
+            agent.controller_and_memory = loaded.agent.controller_and_memory
+            agent.controller_and_memory.exp = new_experiment
+            agent.controller_and_memory.controller.exp = new_experiment
+            agent.controller_and_memory.memory.exp = new_experiment
 
         if configuration.manager is not None:
             agent.manager = configuration.manager.the_class(new_experiment)
