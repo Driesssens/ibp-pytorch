@@ -172,3 +172,30 @@ class ConfigurationSeries:
         print(series.factor_of('sum_loss'))
 
         print(series.n_configurations())
+
+
+class ClippedNormal(torch.distributions.Normal):
+
+    def __init__(self, loc, scale, lower=None, upper=None):
+        super().__init__(loc, scale)
+
+        self.lower = lower
+        self.upper = upper
+        self.active = self.lower is not None or self.upper is not None
+
+    def sample(self):
+        result = super().sample()
+
+        clipped_result = torch.clamp(result, self.lower, self.upper) if self.active else result
+
+        return result, clipped_result
+
+    def log_prob(self, value):
+        results = super().log_prob(value)
+
+        if self.lower is not None:
+            results = torch.where(value > self.lower, results, super().cdf(self.lower).log())
+        if self.upper is not None:
+            results = torch.where(value < self.upper, results, (1 - super().cdf(self.upper)).log())
+
+        return results

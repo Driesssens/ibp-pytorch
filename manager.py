@@ -37,6 +37,7 @@ class PPOManager(torch.nn.Module):
 
         self.batch_task_cost = Accumulator()
         self.batch_ponder_cost = Accumulator()
+        self.batch_threshold = Accumulator()
         self.batch_final_threshold = Accumulator()
         self.batch_gaussian_mean = Accumulator()
         self.batch_gaussian_stddev = Accumulator()
@@ -59,7 +60,7 @@ class PPOManager(torch.nn.Module):
 
         action_distribution, value_estimation = self(features)
 
-        action = action_distribution.sample().detach()
+        action, clipped_action = action_distribution.sample()
         logprob = action_distribution.log_prob(action).detach()
 
         self.batch_features = torch.cat((self.batch_features, features.unsqueeze(dim=0)))
@@ -71,7 +72,7 @@ class PPOManager(torch.nn.Module):
 
         self.episode_estimated_values.append(value_estimation.detach())
 
-        return action
+        return clipped_action
 
     def forward(self, features):
         processed_features = self.shared_network(features)
@@ -79,7 +80,13 @@ class PPOManager(torch.nn.Module):
         action_mean = self.gaussian_mean(processed_features)
         action_stddev = torch.exp(self.gaussian_log_stddev)
 
-        action_distribution = Normal(action_mean, action_stddev)
+        action_distribution = ClippedNormal(
+            action_mean,
+            action_stddev,
+            0 if self.exp.conf.manager.lower_bounded_actions else None,
+            features[..., 0] if self.exp.conf.manager.upper_bounded_actions else None
+        )
+
         value_estimation = self.critic(processed_features)
 
         return action_distribution, value_estimation
@@ -155,7 +162,8 @@ class PPOManager(torch.nn.Module):
         self.exp.log("manager_mean_total_loss", batch_total_loss.average())  # per step - kan met data | DONE
         self.exp.log("manager_mean_value_estimation_error", batch_value_estimation_error.average())  # per step - moet nog gemaakt worden | DONE
 
-        self.exp.log("manager_mean_threshold", self.batch_actions.mean().item())  # per step - kan met data | DONE
+        self.exp.log("manager_mean_threshold", self.batch_threshold.average())  # per step - kan met data | DONE
+        self.exp.log("manager_mean_action", self.batch_actions.mean().item())  # per step - kan met data | DONE
         self.exp.log("manager_mean_final_threshold", self.batch_final_threshold.average())  # hele episode - is accumulator voor - wordt al gevuld | DONE
         self.exp.log("manager_mean_gaussian_mean", self.batch_gaussian_mean.average())  # per step - moet nog gemaakt worden (accumulator?) | DONE
         self.exp.log("manager_mean_gaussian_stddev", self.batch_gaussian_stddev.average())  # per step - moet nog gemaakt worden (accumulator?) | DONE
@@ -163,6 +171,7 @@ class PPOManager(torch.nn.Module):
         self.batch_task_cost = Accumulator()
         self.batch_ponder_cost = Accumulator()
         self.batch_final_threshold = Accumulator()
+        self.batch_threshold = Accumulator()
         self.batch_gaussian_mean = Accumulator()
         self.batch_gaussian_stddev = Accumulator()
 

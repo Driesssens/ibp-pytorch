@@ -338,11 +338,11 @@ class SetMemory(torch.nn.Module):
             objects = [objekt for (objekt, filter_value) in zip(objects, filter_indices) if filter_value]
 
         if hasattr(self, 'measure_performance_under_more_and_unobserved_planets'):
-            assert filter_indices is None
-
             if self.measure_performance_under_more_and_unobserved_planets == 'only_ship_observed':
+                assert filter_indices is None
                 objects = [new_state]
             elif self.measure_performance_under_more_and_unobserved_planets == 'extra_planets_unobserved':
+                assert filter_indices is None
                 objects = [new_state] + self.exp.env.planets[:-1]
 
         object_embeddings = self.get_object_embeddings(objects)

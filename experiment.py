@@ -50,6 +50,7 @@ class Experiment:
         if configuration.manager is not None:
             agent.manager = configuration.manager.the_class(new_experiment)
 
+        agent.history_embedding = torch.zeros(new_experiment.conf.history_embedding_length)
         new_experiment.agent = agent
 
         os.makedirs(new_experiment.directory_path())

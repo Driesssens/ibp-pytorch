@@ -95,6 +95,8 @@ class ImaginationBasedPlanner:
                 object_embeddings = self.controller_and_memory.memory.get_object_embeddings(objects)
 
                 threshold = self.manager.act(list(filter(lambda x: x is not None, object_embeddings)))
+
+                self.manager.batch_threshold.add(threshold)
                 last_threshold = threshold
 
                 filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
