@@ -82,7 +82,7 @@ class ImaginationBasedPlanner:
 
             self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
 
-            if self.has_ppo_manager():
+            if self.has_ppo_manager and (self.exp.conf.manager.per_imagination or i_imagination == 0):
                 objects = [imagined_trajectory[-1]] + self.exp.env.planets
 
                 if filter_indices is None:
@@ -122,10 +122,14 @@ class ImaginationBasedPlanner:
                 self.batch_n_planets_in_each_imagination.add(n_kept_planets)
                 self.batch_f_planets_in_each_imagination.add(fraction_kept_planets)
 
-            if self.has_ppo_manager():
+            if self.has_ppo_manager() and (self.exp.conf.manager.per_imagination or i_imagination == 0):
                 n_kept_objects = len(list(filter(lambda x: x, filter_indices)))  # count amount of True
                 fraction_kept_objects = n_kept_objects / len(filter_indices)
-                self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * (n_kept_objects + 1) / (len(filter_indices) + 1))
+                self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * fraction_kept_objects)
+
+                if not self.exp.conf.manager.per_imagination:
+                    self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
+
                 self.batch_n_planets_in_each_imagination.add(n_kept_objects)
                 self.batch_f_planets_in_each_imagination.add(fraction_kept_objects)
 
@@ -161,6 +165,8 @@ class ImaginationBasedPlanner:
 
             external_cost = actual_task_cost + actual_fuel_cost
             self.manager.episode_costs[-1] += external_cost
+
+            print(self.manager.episode_costs)
 
             task_cost = internal_cost + external_cost
             self.manager.batch_task_cost.add(task_cost)

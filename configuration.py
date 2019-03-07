@@ -202,8 +202,9 @@ class PPOManagerConfiguration(Configuration):
                  n_ppo_epochs=5,
                  ppo_clip=0.2,
                  c_value_estimation_loss=0.5,
-                 lower_bounded_actions=True,
-                 upper_bounded_actions=True,
+                 lower_bounded_actions=False,
+                 upper_bounded_actions=False,
+                 per_imagination=True,
                  feature_average_norm=True,
                  feature_cumulative_norm=True,
                  feature_history_embedding=True
@@ -218,6 +219,7 @@ class PPOManagerConfiguration(Configuration):
         self.c_value_estimation_loss = c_value_estimation_loss
         self.lower_bounded_actions = lower_bounded_actions
         self.upper_bounded_actions = upper_bounded_actions
+        self.per_imagination = per_imagination
         self.feature_average_norm = feature_average_norm
         self.feature_cumulative_norm = feature_cumulative_norm
         self.feature_history_embedding = feature_history_embedding
