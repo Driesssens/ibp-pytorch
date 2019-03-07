@@ -48,8 +48,10 @@ class PPOManager(torch.nn.Module):
         self.batch_advantages = torch.FloatTensor(0, 1)
         self.batch_target_values = torch.FloatTensor(0, 1)
 
-    def act(self, planet_embeddings):
-        planet_norms = [planet_embedding.norm().item() for planet_embedding in planet_embeddings]
+    def act(self, object_embeddings, objects):
+        object_embeddings = list(filter(lambda x: x is not None, object_embeddings))
+
+        planet_norms = [planet_embedding.norm().item() for planet_embedding in object_embeddings]
 
         features = tensor_from(
             max(planet_norms) if len(planet_norms) > 0 else 0,  # highest norm is always included

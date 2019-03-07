@@ -5,6 +5,7 @@ from typing import Union
 from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory, SetControllerAndSetMemory
 from imaginator import Imaginator
 from manager import Manager, PPOManager
+from binary_manager import BinaryManager
 
 
 class ImaginationStrategies(Enum):
@@ -222,7 +223,38 @@ class PPOManagerConfiguration(Configuration):
         self.per_imagination = per_imagination
         self.feature_average_norm = feature_average_norm
         self.feature_cumulative_norm = feature_cumulative_norm
-        self.feature_history_embedding = feature_history_embedding
+        self.feature_history_embedding = feature_history_embedding and per_imagination
+
+
+class BinaryManagerConfiguration(Configuration):
+    the_class = BinaryManager
+
+    def __init__(self,
+                 hidden_layer_sizes=(64, 64),
+                 learning_rate=0.001,
+                 max_gradient_norm=10,
+                 ponder_price=0.05,
+                 n_ppo_epochs=5,
+                 ppo_clip=0.2,
+                 c_value_estimation_loss=0.5,
+                 per_imagination=True,
+                 feature_controller_embedding=True,
+                 feature_norm=True,
+                 feature_state=True,
+                 feature_history_embedding=True
+                 ):
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.ponder_price = ponder_price
+        self.n_ppo_epochs = n_ppo_epochs
+        self.ppo_clip = ppo_clip
+        self.c_value_estimation_loss = c_value_estimation_loss
+        self.per_imagination = per_imagination
+        self.feature_controller_embedding = feature_controller_embedding
+        self.feature_norm = feature_norm,
+        self.feature_state = feature_state
+        self.feature_history_embedding = feature_history_embedding and per_imagination
 
 
 class GeneralConfiguration:
@@ -293,7 +325,7 @@ class GeneralConfiguration:
         self.use_ship_mass = use_ship_mass
         self.imaginator = imaginator  # type: ImaginatorConfiguration
         self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration, SetControllerAndSetMemoryConfiguration]
-        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration]
+        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration, BinaryManagerConfiguration]
 
     @property
     def routes_of_strategy(self):

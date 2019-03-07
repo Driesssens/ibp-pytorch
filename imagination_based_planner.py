@@ -8,6 +8,7 @@ from manager import Manager, PPOManager
 from spaceship_environment import polar2cartesian
 from configuration import route_as_vector, Routes
 from utilities import *
+from binary_manager import BinaryManager
 
 if False:
     from experiment import Experiment
@@ -40,8 +41,10 @@ class ImaginationBasedPlanner:
         last_filtered_planets = self.exp.env.planets
         last_threshold = None
         filter_indices = None
+        filter_indices_this_action = None
 
         for _ in range(self.exp.conf.max_imaginations_per_action):
+
             if self.has_normal_manager():
                 i_route, threshold = self.manager.act()
                 route = self.exp.conf.routes_of_strategy[i_route] if i_route is not None else Routes.IMAGINE_FROM_REAL_STATE
@@ -68,7 +71,6 @@ class ImaginationBasedPlanner:
             filtered_planets = self.exp.env.planets
 
             if self.has_normal_manager() and threshold is not None:
-                print(threshold)
                 filtered_planets = self.imaginator.filter(last_imagined_ship_state, filtered_planets, threshold)
                 self.manager.batch_threshold.add(threshold)
                 last_threshold = threshold
@@ -92,14 +94,16 @@ class ImaginationBasedPlanner:
                     if not filter_indices[i]:
                         objects[i] = None
 
-                object_embeddings = self.controller_and_memory.memory.get_object_embeddings(objects)
+                object_embeddings = [x.detach() if x is not None else x for x in self.controller_and_memory.memory.get_object_embeddings(objects)]
 
-                threshold = self.manager.act(list(filter(lambda x: x is not None, object_embeddings)))
+                if isinstance(self.manager, BinaryManager):
+                    filter_indices, filter_indices_this_action = self.manager.act(object_embeddings, objects)
+                else:
+                    threshold = self.manager.act(object_embeddings, objects)
 
-                self.manager.batch_threshold.add(threshold)
-                last_threshold = threshold
-
-                filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
+                    self.manager.batch_threshold.add(threshold)
+                    last_threshold = threshold
+                    filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
 
             if self.controller_and_memory is not None:
                 self.history_embedding = self.controller_and_memory.memory(
@@ -125,10 +129,18 @@ class ImaginationBasedPlanner:
             if self.has_ppo_manager() and (self.exp.conf.manager.per_imagination or i_imagination == 0):
                 n_kept_objects = len(list(filter(lambda x: x, filter_indices)))  # count amount of True
                 fraction_kept_objects = n_kept_objects / len(filter_indices)
-                self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * fraction_kept_objects)
 
-                if not self.exp.conf.manager.per_imagination:
-                    self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
+                if isinstance(self.manager, BinaryManager):
+                    for decision in filter_indices_this_action:
+                        self.manager.episode_costs.append(self.exp.conf.manager.ponder_price / len(filter_indices) if decision else 0)
+
+                        if not self.exp.conf.manager.per_imagination:
+                            self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
+                else:
+                    self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * fraction_kept_objects)
+
+                    if not self.exp.conf.manager.per_imagination:
+                        self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
 
                 self.batch_n_planets_in_each_imagination.add(n_kept_objects)
                 self.batch_f_planets_in_each_imagination.add(fraction_kept_objects)
@@ -165,8 +177,6 @@ class ImaginationBasedPlanner:
 
             external_cost = actual_task_cost + actual_fuel_cost
             self.manager.episode_costs[-1] += external_cost
-
-            print(self.manager.episode_costs)
 
             task_cost = internal_cost + external_cost
             self.manager.batch_task_cost.add(task_cost)
@@ -234,7 +244,7 @@ class ImaginationBasedPlanner:
         return self.manager is not None and isinstance(self.manager, Manager)
 
     def has_ppo_manager(self):
-        return self.manager is not None and isinstance(self.manager, PPOManager)
+        return self.manager is not None and (isinstance(self.manager, PPOManager) or isinstance(self.manager, BinaryManager))
 
     def finish_batch(self):
         self.imaginator.finish_batch()
