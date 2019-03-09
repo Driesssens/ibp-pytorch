@@ -8,7 +8,7 @@ from manager import Manager, PPOManager
 from spaceship_environment import polar2cartesian
 from configuration import route_as_vector, Routes
 from utilities import *
-from binary_manager import BinaryManager
+from binary_manager import BinaryManager, BinomialManager
 
 if False:
     from experiment import Experiment
@@ -96,7 +96,7 @@ class ImaginationBasedPlanner:
 
                 object_embeddings = [x.detach() if x is not None else x for x in self.controller_and_memory.memory.get_object_embeddings(objects)]
 
-                if isinstance(self.manager, BinaryManager):
+                if isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager):
                     filter_indices, filter_indices_this_action = self.manager.act(object_embeddings, objects)
                 else:
                     threshold = self.manager.act(object_embeddings, objects)
@@ -133,6 +133,13 @@ class ImaginationBasedPlanner:
                 if isinstance(self.manager, BinaryManager):
                     for decision in filter_indices_this_action:
                         self.manager.episode_costs.append(self.exp.conf.manager.ponder_price / len(filter_indices) if decision else 0)
+
+                        if not self.exp.conf.manager.per_imagination:
+                            self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
+
+                elif isinstance(self.manager, BinomialManager):
+                    if len(filter_indices_this_action) > 0:
+                        self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * fraction_kept_objects)
 
                         if not self.exp.conf.manager.per_imagination:
                             self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
@@ -244,7 +251,7 @@ class ImaginationBasedPlanner:
         return self.manager is not None and isinstance(self.manager, Manager)
 
     def has_ppo_manager(self):
-        return self.manager is not None and (isinstance(self.manager, PPOManager) or isinstance(self.manager, BinaryManager))
+        return self.manager is not None and (isinstance(self.manager, PPOManager) or isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager))
 
     def finish_batch(self):
         self.imaginator.finish_batch()

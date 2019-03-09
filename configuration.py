@@ -5,7 +5,7 @@ from typing import Union
 from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory, SetControllerAndSetMemory
 from imaginator import Imaginator
 from manager import Manager, PPOManager
-from binary_manager import BinaryManager
+from binary_manager import BinaryManager, BinomialManager
 
 
 class ImaginationStrategies(Enum):
@@ -257,6 +257,53 @@ class BinaryManagerConfiguration(Configuration):
         self.feature_history_embedding = feature_history_embedding and per_imagination
 
 
+class BinomialManagerConfiguration(Configuration):
+    the_class = BinomialManager
+
+    def __init__(self,
+                 object_function_layer_sizes=(150, 150, 150, 150),
+                 object_embedding_length=50,
+                 state_function_layer_sizes=(),
+                 state_embedding_length=100,
+                 value_layer_sizes=(64,),
+                 policy_layer_sizes=(64, 64),
+                 learning_rate=0.001,
+                 max_gradient_norm=10,
+                 ponder_price=0.05,
+                 n_ppo_epochs=5,
+                 ppo_clip=0.2,
+                 c_value_estimation_loss=0.5,
+                 per_imagination=True,
+                 feature_controller_embedding=True,
+                 feature_norm=True,
+                 feature_state=True,
+                 feature_n_objects=True,
+                 feature_history_embedding=True,
+                 feature_state_embedding=True
+                 ):
+        self.object_function_layer_sizes = object_function_layer_sizes
+        self.object_embedding_length = object_embedding_length
+        self.state_function_layer_sizes = state_function_layer_sizes
+        self.state_embedding_length = state_embedding_length
+        self.value_layer_sizes = value_layer_sizes
+        self.policy_layer_sizes = policy_layer_sizes
+
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.ponder_price = ponder_price
+        self.n_ppo_epochs = n_ppo_epochs
+        self.ppo_clip = ppo_clip
+        self.c_value_estimation_loss = c_value_estimation_loss
+        self.per_imagination = per_imagination
+
+        self.feature_controller_embedding = feature_controller_embedding
+        self.feature_norm = feature_norm,
+        self.feature_state = feature_state
+        self.feature_n_objects = feature_n_objects
+        self.feature_history_embedding = feature_history_embedding and per_imagination
+        self.feature_state_embedding = feature_state_embedding
+
+
 class GeneralConfiguration:
     @classmethod
     def from_dict(cls, general_settings, imaginator_settings=None, controller_settings=None, manager_settings=None) -> 'GeneralConfiguration':
@@ -325,7 +372,7 @@ class GeneralConfiguration:
         self.use_ship_mass = use_ship_mass
         self.imaginator = imaginator  # type: ImaginatorConfiguration
         self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration, SetControllerAndSetMemoryConfiguration]
-        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration, BinaryManagerConfiguration]
+        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration, BinaryManagerConfiguration, BinomialManagerConfiguration]
 
     @property
     def routes_of_strategy(self):
