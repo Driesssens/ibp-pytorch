@@ -175,7 +175,7 @@ class BinomialManager(torch.nn.Module):
         # print(logits)
 
         # action_distribution = Binomial(logits=logits)
-        action_distribution = Binomial(logits=logits.clamp(max=88))
+        action_distribution = Binomial(logits=logits.clamp(max=88, min=-88))
 
         return action_distribution, value_estimation
 
@@ -248,6 +248,10 @@ class BinomialManager(torch.nn.Module):
 
             value_estimation_loss = (value_estimation - self.batch_target_values).pow(2)
 
+            if torch.isnan(action_loss.sum()).item() == 1:
+                print(action_loss)
+                raise Exception
+
             if self.exp.conf.manager.feature_state_embedding:
                 total_loss = (action_loss + self.exp.conf.manager.c_value_estimation_loss * value_estimation_loss)
 
@@ -259,6 +263,11 @@ class BinomialManager(torch.nn.Module):
                 else:
                     action_loss.sum().backward()
                     value_estimation_loss.sum.backward()
+
+                if has_nan_gradient(self.parameters()):
+                    print(action_loss)
+                    print(self.parameters())
+                    raise Exception
 
                 self.exp.log("manager_batch_norm", gradient_norm(self.parameters()))
                 if self.exp.conf.manager.max_gradient_norm is not None:

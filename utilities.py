@@ -53,6 +53,14 @@ def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu, 
     return sequence
 
 
+def has_nan_gradient(parameters):
+    parameters = list(filter(lambda p: p.grad is not None, parameters))
+    for parameter in parameters:
+        if torch.isnan(parameter.grad.mean()):
+            return True
+    return False
+
+
 def gradient_norm(parameters):
     parameters = list(filter(lambda p: p.grad is not None, parameters))
     total_norm = 0
