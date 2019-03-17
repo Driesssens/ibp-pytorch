@@ -87,6 +87,8 @@ class Accumulator:
         self.counter += 1
 
     def average(self):
+        if self.cumulative_value is None:
+            return None
         average = self.cumulative_value / self.counter
         return average
 

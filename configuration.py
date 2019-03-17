@@ -6,6 +6,7 @@ from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemor
 from imaginator import Imaginator
 from manager import Manager, PPOManager
 from binary_manager import BinaryManager, BinomialManager
+from curator import Curator
 
 
 class ImaginationStrategies(Enum):
@@ -304,6 +305,55 @@ class BinomialManagerConfiguration(Configuration):
         self.feature_state_embedding = feature_state_embedding
 
 
+class CuratorConfiguration(Configuration):
+    the_class = Curator
+
+    def __init__(self,
+                 object_function_layer_sizes=(150, 150, 150, 150),
+                 object_embedding_length=50,
+                 state_function_layer_sizes=(),
+                 state_embedding_length=100,
+                 value_layer_sizes=(64,),
+                 policy_layer_sizes=(64, 64),
+                 learning_rate=0.001,
+                 max_gradient_norm=10,
+                 ponder_price=0.05,
+                 n_ppo_epochs=5,
+                 ppo_clip=0.2,
+                 c_value_estimation_loss=0.5,
+                 per_physics_step=True,
+                 feature_imaginator_embedding=True,
+                 feature_norm=True,
+                 feature_state=True,
+                 feature_n_objects=True,
+                 feature_ship_state=True,
+                 feature_control=True,
+                 feature_state_embedding=True
+                 ):
+        self.object_function_layer_sizes = object_function_layer_sizes
+        self.object_embedding_length = object_embedding_length
+        self.state_function_layer_sizes = state_function_layer_sizes
+        self.state_embedding_length = state_embedding_length
+        self.value_layer_sizes = value_layer_sizes
+        self.policy_layer_sizes = policy_layer_sizes
+
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.ponder_price = ponder_price
+        self.n_ppo_epochs = n_ppo_epochs
+        self.ppo_clip = ppo_clip
+        self.c_value_estimation_loss = c_value_estimation_loss
+        self.per_physics_step = per_physics_step
+
+        self.feature_imaginator_embedding = feature_imaginator_embedding
+        self.feature_norm = feature_norm,
+        self.feature_state = feature_state
+        self.feature_n_objects = feature_n_objects
+        self.feature_ship_state = feature_ship_state
+        self.feature_control = feature_control
+        self.feature_state_embedding = feature_state_embedding
+
+
 class GeneralConfiguration:
     @classmethod
     def from_dict(cls, general_settings, imaginator_settings=None, controller_settings=None, manager_settings=None) -> 'GeneralConfiguration':
@@ -344,6 +394,7 @@ class GeneralConfiguration:
                  planets_random_mass_interval=(0.08, 0.4),
                  planets_random_radial_distance_interval=(0.4, 1.0),
                  n_secondary_planets=0,
+                 secondary_planets_random_mass_interval=(0.00, 0.00),
                  history_embedding_length=None,
                  _history_embedding_length=100,
                  max_imaginations_per_action=3,
@@ -364,6 +415,7 @@ class GeneralConfiguration:
         self.planets_random_mass_interval = planets_random_mass_interval
         self.planets_random_radial_distance_interval = planets_random_radial_distance_interval
         self.n_secondary_planets = n_secondary_planets
+        self.secondary_planets_random_mass_interval = secondary_planets_random_mass_interval
         self._history_embedding_length = _history_embedding_length if history_embedding_length is None else history_embedding_length
         self.max_imaginations_per_action = max_imaginations_per_action
         self.imagination_strategy = imagination_strategy
@@ -372,7 +424,7 @@ class GeneralConfiguration:
         self.use_ship_mass = use_ship_mass
         self.imaginator = imaginator  # type: ImaginatorConfiguration
         self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration, SetControllerAndSetMemoryConfiguration]
-        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration, BinaryManagerConfiguration, BinomialManagerConfiguration]
+        self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration, BinaryManagerConfiguration, BinomialManagerConfiguration, CuratorConfiguration]
 
     @property
     def routes_of_strategy(self):

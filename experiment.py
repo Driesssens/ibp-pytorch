@@ -297,9 +297,10 @@ class Experiment:
             agent_ship_random_radial_distance_interval=self.conf.agent_ship_random_radial_distance_interval,
             planets_random_mass_interval=self.conf.planets_random_mass_interval,
             planets_random_radial_distance_interval=self.conf.planets_random_radial_distance_interval,
-            n_secondary_planets=self.conf.n_secondary_planets
+            n_secondary_planets=self.conf.n_secondary_planets,
+            secondary_planets_random_mass_interval=self.conf.secondary_planets_random_mass_interval
         )
 
     def log(self, name, value):
-        if self.tensorboard_writer is not None:
+        if self.tensorboard_writer is not None and value is not None:
             self.tensorboard_writer.add_scalar(name, value, self.agent.i_episode)

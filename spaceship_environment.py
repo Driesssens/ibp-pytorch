@@ -127,7 +127,7 @@ class SpaceshipEnvironment(gym.Env):
                  sun_mass=DEFAULT,
                  sun_random_radial_distance_interval=DEFAULT,
                  n_secondary_planets=0,
-                 secondary_planets_random_mass_interval=(0.004, 0.1),
+                 secondary_planets_random_mass_interval=(0.0, 0.0),
                  secondary_planets_random_radial_distance_interval=(1.8, 2.0),
                  cap_gravity=GravityCap.Low,
                  render_window_size=900,

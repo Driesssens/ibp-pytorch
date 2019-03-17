@@ -5,6 +5,73 @@ from sklearn.decomposition import PCA
 import numpy as np
 import os
 import datetime
+from spaceship_environment import cartesian2polar, polar2cartesian
+
+
+def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_measurements, name=None):
+    experiment = Experiment.load(model_name, model_folders)
+
+    if name is None:
+        name = "{}_{}".format(model_name, datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"))
+
+    folders = ['measurements', 'imaginator_planet_embedding_introspection2', name]
+    os.makedirs(os.path.join(*folders))
+
+    experiment.conf.max_imaginations_per_action = 0
+
+    embeddings_list = []
+    metrics_list = []
+
+    experiment.initialize_environment()
+    experiment.env.render_after_each_step = False
+
+    for _ in range(n_measurements):
+        experiment.env.reset()
+        effect_embeddings = experiment.agent.imaginator.embed(experiment.env.agent_ship, experiment.env.planets)
+
+        for i, embedding in enumerate(effect_embeddings):
+            planet = experiment.env.planets[i]
+
+            actual_radius = np.linalg.norm(experiment.env.agent_ship.xy_position - planet.xy_position)
+            pretended_radius = actual_radius
+
+            pretended_xy_distance = planet.xy_position - experiment.env.agent_ship.xy_position
+            minimal_radius = planet.mass
+
+            if pretended_radius < minimal_radius:
+                pretended_radius = minimal_radius
+                actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
+                pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
+
+            xy_gravitational_force = experiment.env.gravitational_constant * planet.mass * experiment.env.agent_ship.mass * pretended_xy_distance / pretended_radius ** 3
+            gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
+
+            embeddings_list.append(embedding.detach().numpy())
+            metrics_list.append([planet.mass, actual_radius, gravitational_force_magnitude])
+
+    embedding_statistics = analyze_embeddings(embeddings_list, 3, True)
+
+    metrics = pd.DataFrame(
+        metrics_list,
+        columns=['mass', 'dist', 'force']
+    )
+
+    results = pd.concat([embedding_statistics, metrics], axis=1)
+
+    for metric in ['norm', 'pc1', 'pc2', 'pc3']:
+        scatter_plot = results.plot.scatter(
+            x='force',
+            y=metric,
+            c='dist',
+            s=(results['mass'] ** 2) * 250,
+            colormap='viridis',
+        ).get_figure()
+
+        scatter_plot.savefig(os.path.join(*(folders + ['scatter_{}.png'.format(metric)])))
+
+    import matplotlib.pyplot as plt
+    pd.plotting.scatter_matrix(results)
+    plt.savefig(os.path.join(*(folders + ['matrix_scatter'])))
 
 
 def imaginator_planet_embedding_introspection(model_name, model_folders, n_measurements, name=None):
@@ -258,4 +325,7 @@ def experiment_name(model_folders, model_name, date_first=False):
 # performance_under_more_and_unobserved_planets("selu_False-use_action_True-v_3-id_7", ('storage', 'lisa', 'prototype2'), 1000, only_normal=True)
 # performance_under_more_and_unobserved_planets("bugtest19-0.1-2", ('storage', 'home', 'ppo_bugtest'), 1000, only_normal=True)
 
-setmemory_object_embedding_introspection("selu_False-use_action_True-v_3-id_7", ('storage', 'lisa', 'prototype2'), 500)
+# setmemory_object_embedding_introspection("selu_False-use_action_True-v_3-id_7", ('storage', 'lisa', 'prototype2'), 500)
+# imaginator_planet_embedding_introspection_2("cur-scratch-2weightless-1", ('storage', 'home', 'imag'), 100)
+
+performance_under_more_and_unobserved_planets("selu_False-embsize_50-use_i_imagination_True-use_action_True-hide_ship_state_True-agg_raw-id_1", ('storage', 'lisa', 'memoryless'), 500)

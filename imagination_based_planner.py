@@ -9,6 +9,7 @@ from spaceship_environment import polar2cartesian
 from configuration import route_as_vector, Routes
 from utilities import *
 from binary_manager import BinaryManager, BinomialManager
+from curator import Curator
 
 if False:
     from experiment import Experiment
@@ -38,7 +39,6 @@ class ImaginationBasedPlanner:
         i_imagination = 0
 
         last_imagined_ship_state = self.exp.env.agent_ship
-        last_filtered_planets = self.exp.env.planets
         last_threshold = None
         filter_indices = None
         filter_indices_this_action = None
@@ -84,7 +84,7 @@ class ImaginationBasedPlanner:
 
             self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
 
-            if self.has_ppo_manager and (self.exp.conf.manager.per_imagination or i_imagination == 0):
+            if self.has_ppo_manager() and (self.exp.conf.manager.per_imagination or i_imagination == 0):
                 objects = [imagined_trajectory[-1]] + self.exp.env.planets
 
                 if filter_indices is None:
@@ -178,7 +178,7 @@ class ImaginationBasedPlanner:
                 i_imagination=i_imagination,
             )
 
-        if self.manager is not None:
+        if self.manager is not None and not self.has_curator():
             internal_cost = sum(self.manager.episode_costs)
             self.manager.batch_ponder_cost.add(internal_cost)
 
@@ -194,19 +194,33 @@ class ImaginationBasedPlanner:
             if last_threshold is not None:
                 self.manager.batch_final_threshold.add(last_threshold)
 
-        self.imaginator.accumulate_loss(actual_trajectory, last_filtered_planets, detached_action)
+        if self.has_curator():
+            curated_planets = self.manager.act(
+                [emb.detach() for emb in self.imaginator.embed(old_ship_state, self.exp.env.planets)],
+                self.exp.env.planets,
+                old_ship_state,
+                detached_action
+            )
+
+        self.imaginator.accumulate_loss(actual_trajectory, curated_planets if self.has_curator() else self.exp.env.planets, detached_action)
 
         if self.controller_and_memory is not None:
-            estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(old_ship_state, self.exp.env.planets, selected_action, new_ship_state)
+            estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(
+                old_ship_state,
+                curated_planets if self.has_curator() else self.exp.env.planets,
+                selected_action,
+                new_ship_state
+            )
+
             self.controller_and_memory.accumulate_loss(critic_evaluation, fuel_cost)
         else:
-            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, self.exp.env.planets, detached_action, new_ship_state)
+            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, curated_planets if self.has_curator() else self.exp.env.planets, detached_action, new_ship_state)
 
         self.exp.env.add_estimated_ship_trajectory(estimated_trajectory)
         self.batch_n_imaginations_per_action.add(i_imagination)
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
 
-        if self.manager is not None:
+        if self.manager is not None and not self.has_curator():
             self.batch_n_planets_in_final_imagination.add(len(filtered_planets))
             self.batch_f_planets_in_final_imagination.add(len(filtered_planets) / len(self.exp.env.planets))
 
@@ -247,6 +261,9 @@ class ImaginationBasedPlanner:
 
         self.i_episode += 1
 
+    def has_curator(self):
+        return self.manager is not None and isinstance(self.manager, Curator)
+
     def has_normal_manager(self):
         return self.manager is not None and isinstance(self.manager, Manager)
 
@@ -271,8 +288,9 @@ class ImaginationBasedPlanner:
         if self.manager is not None:
             self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
             self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
-            self.exp.log("mean_n_planets_in_final_imagination", self.batch_n_planets_in_final_imagination.average())
-            self.exp.log("mean_f_planets_in_final_imagination", self.batch_f_planets_in_final_imagination.average())
+            if not self.has_curator():
+                self.exp.log("mean_n_planets_in_final_imagination", self.batch_n_planets_in_final_imagination.average())
+                self.exp.log("mean_f_planets_in_final_imagination", self.batch_f_planets_in_final_imagination.average())
 
         self.batch_n_planets_in_each_imagination = Accumulator()
         self.batch_f_planets_in_each_imagination = Accumulator()

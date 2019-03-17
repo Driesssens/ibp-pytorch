@@ -83,7 +83,7 @@ class Imaginator(torch.nn.Module):
 
         return [planet for (planet, norm) in zip(planets, norms) if norm > threshold]
 
-    def forward(self, ship: Ship, planets: List[Planet], action):
+    def embed(self, ship: Ship, planets: List[Planet]):
         effect_embeddings = [
             self.relation_module(tensor_from(
                 ship.mass if self.exp.conf.use_ship_mass else None,
@@ -91,6 +91,11 @@ class Imaginator(torch.nn.Module):
                 tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
             )) for planet in planets
         ]
+
+        return effect_embeddings
+
+    def forward(self, ship: Ship, planets: List[Planet], action):
+        effect_embeddings = self.embed(ship, planets)
 
         if hasattr(self, 'measure_imaginator_planet_embedding_introspection') and not isinstance(action, np.ndarray):
             for i, embedding in enumerate(effect_embeddings):
@@ -147,6 +152,19 @@ class Imaginator(torch.nn.Module):
 
         task_cost = np.square(actual_final_position).mean()
         self.batch_task_cost.add(task_cost)
+
+        if self.exp.agent.has_curator():
+            f_planets_kept = len(planets) / len(self.exp.env.planets)
+            ponder_cost = f_planets_kept * self.exp.conf.manager.ponder_price
+            self.exp.agent.manager.episode_costs.append(ponder_cost + evaluation)
+            self.exp.agent.manager.batch_ponder_cost.add(ponder_cost)
+            self.exp.agent.manager.batch_task_cost.add(ponder_cost + evaluation)
+
+            if hasattr(self.exp.agent, 'measure_performance'):
+                self.exp.agent.manager_mean_task_cost_measurements.append(ponder_cost + evaluation)
+
+            self.exp.agent.batch_n_planets_in_each_imagination.add(len(planets))
+            self.exp.agent.batch_f_planets_in_each_imagination.add(f_planets_kept)
 
         if hasattr(self.exp.agent, 'measure_performance'):
             self.exp.agent.imaginator_mean_final_position_error_measurements.append(evaluation)
