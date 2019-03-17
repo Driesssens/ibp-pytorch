@@ -115,7 +115,9 @@ class SetController(torch.nn.Module):
                 hidden_layer_sizes=self.exp.conf.controller.relation_module_layer_sizes,
                 output_size=self.exp.conf.controller.effect_embedding_length,
                 final_relu=False,
-                selu=self.exp.conf.controller.selu
+                selu=self.exp.conf.controller.selu,
+                leaky=self.exp.conf.controller.leaky,
+                prelu=self.exp.conf.controller.prelu
             )
 
         self.control_module = make_mlp_with_relu(
@@ -123,7 +125,9 @@ class SetController(torch.nn.Module):
             hidden_layer_sizes=self.exp.conf.controller.control_module_layer_sizes,
             output_size=action_vector_length,
             final_relu=False,
-            selu=self.exp.conf.controller.selu
+            selu=self.exp.conf.controller.selu,
+            leaky=self.exp.conf.controller.leaky,
+            prelu=self.exp.conf.controller.prelu
         )
 
     def forward(self, ship):
@@ -289,7 +293,9 @@ class SetMemory(torch.nn.Module):
             hidden_layer_sizes=self.exp.conf.controller.object_function_layer_sizes,
             output_size=self.exp.conf.controller.object_embedding_length,
             final_relu=False,
-            selu=self.exp.conf.controller.selu
+            selu=self.exp.conf.controller.selu,
+            leaky=self.exp.conf.controller.leaky,
+            prelu=self.exp.conf.controller.prelu
         )
 
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
@@ -298,7 +304,9 @@ class SetMemory(torch.nn.Module):
                 hidden_layer_sizes=self.exp.conf.controller.aggregate_function_layer_sizes,
                 output_size=self.exp.conf.controller.aggregate_embedding_length,
                 final_relu=self.exp.conf.controller.relu_after_aggregate_function,
-                selu=self.exp.conf.controller.selu
+                selu=self.exp.conf.controller.selu,
+                leaky=self.exp.conf.controller.leaky,
+                prelu=self.exp.conf.controller.prelu
             )
 
         action_vector_length = 2  # ship xy force

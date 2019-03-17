@@ -27,7 +27,7 @@ def tensor_from(*args):
     return torch.cat(tensor_parts)
 
 
-def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu, selu=False):
+def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu, selu=False, leaky=False, prelu=False):
     if isinstance(hidden_layer_sizes, tuple):
         hidden_layer_sizes = list(hidden_layer_sizes)
 
@@ -38,12 +38,22 @@ def make_mlp_with_relu(input_size, hidden_layer_sizes, output_size, final_relu, 
 
     layers = []
 
+    activation = torch.nn.ReLU
+
+    if selu:
+        activation = torch.nn.SELU
+    elif leaky is not False:
+        activation = torch.nn.LeakyReLU
+    elif prelu:
+        print("yes")
+        activation = torch.nn.PReLU
+
     for i_input_layer in range(0, len(layer_sizes) - 1):
         i_output_layer = i_input_layer + 1
 
         layers += [
             torch.nn.Linear(layer_sizes[i_input_layer], layer_sizes[i_output_layer]),
-            torch.nn.SELU() if selu else torch.nn.ReLU(),
+            activation() if leaky is False else activation(leaky),
         ]
 
     if not final_relu:

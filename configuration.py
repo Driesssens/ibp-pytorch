@@ -124,6 +124,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  relu_after_aggregate_function=False,
                  memoryless=False,
                  effect_embedding_length=None,  # do not use
+                 leaky=False,
+                 prelu=False
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -146,6 +148,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.memoryless = memoryless
 
         self.selu = selu
+        self.leaky = leaky
+        self.prelu = prelu
 
 
 class ImaginatorConfiguration(Configuration):
