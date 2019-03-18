@@ -211,6 +211,7 @@ class PPOManagerConfiguration(Configuration):
                  lower_bounded_actions=False,
                  upper_bounded_actions=False,
                  per_imagination=True,
+                 n_steps_delay=0,
                  feature_average_norm=True,
                  feature_cumulative_norm=True,
                  feature_history_embedding=True
@@ -226,6 +227,7 @@ class PPOManagerConfiguration(Configuration):
         self.lower_bounded_actions = lower_bounded_actions
         self.upper_bounded_actions = upper_bounded_actions
         self.per_imagination = per_imagination
+        self.n_steps_delay = n_steps_delay
         self.feature_average_norm = feature_average_norm
         self.feature_cumulative_norm = feature_cumulative_norm
         self.feature_history_embedding = feature_history_embedding and per_imagination
@@ -279,6 +281,7 @@ class BinomialManagerConfiguration(Configuration):
                  ppo_clip=0.2,
                  c_value_estimation_loss=0.5,
                  per_imagination=True,
+                 n_steps_delay=0,
                  feature_controller_embedding=True,
                  feature_norm=True,
                  feature_state=True,
@@ -300,6 +303,7 @@ class BinomialManagerConfiguration(Configuration):
         self.ppo_clip = ppo_clip
         self.c_value_estimation_loss = c_value_estimation_loss
         self.per_imagination = per_imagination
+        self.n_steps_delay = n_steps_delay
 
         self.feature_controller_embedding = feature_controller_embedding
         self.feature_norm = feature_norm,

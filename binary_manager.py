@@ -180,6 +180,9 @@ class BinomialManager(torch.nn.Module):
         return action_distribution, value_estimation
 
     def finish_episode(self):
+        if self.exp.agent.i_episode < self.exp.conf.manager.n_steps_delay:
+            return
+
         reversed_episode_costs = list(reversed(self.episode_costs))
         reversed_estimated_values = list(reversed(self.episode_estimated_values))
         reversed_advantages = []
@@ -204,6 +207,9 @@ class BinomialManager(torch.nn.Module):
         self.episode_estimated_values = []
 
     def finish_batch(self):
+        if self.exp.agent.i_episode < self.exp.conf.manager.n_steps_delay:
+            return
+
         batch_policy_loss = Accumulator()
         batch_unclipped_policy_loss = Accumulator()
         batch_value_estimation_loss = Accumulator()

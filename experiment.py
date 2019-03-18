@@ -270,7 +270,7 @@ class Experiment:
             self.log('controller/75_percentile', np.percentile(controller_performance, 75))
             self.log('controller/variance', controller_performance.var())
 
-        if self.conf.manager is not None:
+        if self.conf.manager is not None and not self.agent.manager_delayed():
             manager_performance = np.stack(self.agent.manager_mean_task_cost_measurements)
 
             self.log('manager/mean', manager_performance.mean())

@@ -178,7 +178,7 @@ class ImaginationBasedPlanner:
                 i_imagination=i_imagination,
             )
 
-        if self.manager is not None and not self.has_curator():
+        if self.manager is not None and not self.has_curator() and not self.manager_delayed():
             internal_cost = sum(self.manager.episode_costs)
             self.manager.batch_ponder_cost.add(internal_cost)
 
@@ -267,8 +267,12 @@ class ImaginationBasedPlanner:
     def has_normal_manager(self):
         return self.manager is not None and isinstance(self.manager, Manager)
 
+    def manager_delayed(self):
+        return hasattr(self.exp.conf.manager, 'n_steps_delay') and self.i_episode < self.exp.conf.manager.n_steps_delay
+
     def has_ppo_manager(self):
-        return self.manager is not None and (isinstance(self.manager, PPOManager) or isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager))
+        has_it = self.manager is not None and (isinstance(self.manager, PPOManager) or isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager))
+        return has_it and self.i_episode >= self.exp.conf.manager.n_steps_delay
 
     def finish_batch(self):
         self.imaginator.finish_batch()
