@@ -282,6 +282,7 @@ class BinomialManagerConfiguration(Configuration):
                  c_value_estimation_loss=0.5,
                  per_imagination=True,
                  n_steps_delay=0,
+                 c_entropy_bonus=0,
                  feature_controller_embedding=True,
                  feature_norm=True,
                  feature_state=True,
@@ -304,6 +305,7 @@ class BinomialManagerConfiguration(Configuration):
         self.c_value_estimation_loss = c_value_estimation_loss
         self.per_imagination = per_imagination
         self.n_steps_delay = n_steps_delay
+        self.c_entropy_bonus = c_entropy_bonus
 
         self.feature_controller_embedding = feature_controller_embedding
         self.feature_norm = feature_norm,

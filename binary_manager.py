@@ -60,6 +60,7 @@ class BinomialManager(torch.nn.Module):
         self.batch_ponder_cost = Accumulator()
         self.batch_planet_p = Accumulator()
         self.batch_ship_p = Accumulator()
+        self.batch_entropy = Accumulator()
 
         self.batch_object_features = []
         self.batch_state_features = []
@@ -89,7 +90,7 @@ class BinomialManager(torch.nn.Module):
             for object_embedding, objekt in zip(filtered_object_embeddings, filtered_objects)
         ])
 
-        action_distribution, value_estimation = self(object_features, self.exp.agent.history_embedding.detach())
+        action_distribution, value_estimation, entropy = self(object_features, self.exp.agent.history_embedding.detach())
 
         action = action_distribution.sample()
         filter_indices_this_action = [x == 1 for x in action.tolist()]
@@ -101,6 +102,7 @@ class BinomialManager(torch.nn.Module):
 
         self.batch_actions.append(action)
         self.batch_old_logprobs = torch.cat((self.batch_old_logprobs, logprob.unsqueeze(dim=0)))
+        self.batch_entropy.add(entropy.item())
 
         for p, objekt in zip(action_distribution.probs, objects):
             if isinstance(objekt, Planet):
@@ -176,8 +178,9 @@ class BinomialManager(torch.nn.Module):
 
         # action_distribution = Binomial(logits=logits)
         action_distribution = Binomial(logits=logits.clamp(max=88, min=-88))
+        entropy = Bernoulli(logits=logits).entropy().mean()
 
-        return action_distribution, value_estimation
+        return action_distribution, value_estimation, entropy
 
     def finish_episode(self):
         if self.exp.agent.i_episode < self.exp.conf.manager.n_steps_delay:
@@ -215,20 +218,24 @@ class BinomialManager(torch.nn.Module):
         batch_value_estimation_loss = Accumulator()
         batch_value_estimation_error = Accumulator()
         batch_total_loss = Accumulator()
+        batch_entropy_bonus = Accumulator()
 
         for i_epoch in range(self.exp.conf.manager.n_ppo_epochs):
             logprobs = []
             value_estimations = []
+            entropies = []
 
             for (object_features, state_feature, action) in zip(self.batch_object_features, self.batch_state_features, self.batch_actions):
-                distribution, value_estimation = self(object_features, state_feature)
+                distribution, value_estimation, entropy = self(object_features, state_feature)
                 logprob = distribution.log_prob(action).sum()
 
                 logprobs.append(logprob)
                 value_estimations.append(value_estimation)
+                entropies.append(entropy)
 
             logprob = torch.stack(logprobs)
             value_estimation = torch.stack(value_estimations)
+            entropy = torch.stack(entropies)
 
             ratio = torch.exp(logprob - self.batch_old_logprobs)
 
@@ -254,12 +261,14 @@ class BinomialManager(torch.nn.Module):
 
             value_estimation_loss = (value_estimation - self.batch_target_values).pow(2)
 
+            entropy_bonus = entropy * self.exp.conf.manager.c_entropy_bonus
+
             if torch.isnan(action_loss.sum()).item() == 1:
                 print(action_loss)
                 raise Exception
 
             if self.exp.conf.manager.feature_state_embedding:
-                total_loss = (action_loss + self.exp.conf.manager.c_value_estimation_loss * value_estimation_loss)
+                total_loss = (action_loss + self.exp.conf.manager.c_value_estimation_loss * value_estimation_loss) - entropy_bonus
 
             if self.exp.train_model:
                 self.optimizer.zero_grad()
@@ -267,8 +276,9 @@ class BinomialManager(torch.nn.Module):
                 if self.exp.conf.manager.feature_state_embedding:
                     total_loss.sum().backward()
                 else:
-                    action_loss.sum().backward()
-                    value_estimation_loss.sum.backward()
+                    # note sure if this case works... Check before using
+                    (entropy_bonus.sum() + action_loss.sum()).backward()
+                    value_estimation_loss.sum().backward()
 
                 if has_nan_gradient(self.parameters()):
                     print(action_loss)
@@ -286,11 +296,12 @@ class BinomialManager(torch.nn.Module):
             batch_unclipped_policy_loss.add(-1 * unclipped_action_gain.mean().item())
             batch_value_estimation_loss.add(value_estimation_loss.mean().item())
             batch_value_estimation_error.add((value_estimation - self.batch_target_values).abs().mean().item())
+            batch_entropy_bonus.add(entropy_bonus.mean().item())
 
             if self.exp.conf.manager.feature_state_embedding:
                 batch_total_loss.add(total_loss.mean().item())
 
-        # self.exp.log("manager_mean_entropy", self.batch_entropy.average().item())
+        self.exp.log("manager_mean_entropy", self.batch_entropy.average())
         self.exp.log("manager_mean_task_cost", self.batch_task_cost.average())  # hele episode - is accumulator voor - wordt al gevuld | DONE
         self.exp.log("manager_mean_ponder_cost", self.batch_ponder_cost.average())  # hele episode - is accumulator voor - wordt al gevuld | DONE
         self.exp.log("manager_mean_planet_p", self.batch_planet_p.average())
@@ -299,7 +310,7 @@ class BinomialManager(torch.nn.Module):
         self.exp.log("manager_mean_policy_loss", batch_policy_loss.average())  # per step - kan met data | DONE
         self.exp.log("manager_mean_unclipped_policy_loss", batch_unclipped_policy_loss.average())  # per step - kan met data | DONE
         self.exp.log("manager_mean_value_estimation_loss", batch_value_estimation_loss.average())  # per step - kan met data | DONE
-        # self.exp.log("manager_mean_entropy_loss", self.batch_entropy_loss.average().item())  # per step - kan met data
+        self.exp.log("manager_mean_entropy_bonus", batch_entropy_bonus.average())  # per step - kan met data
 
         if self.exp.conf.manager.feature_state_embedding:
             self.exp.log("manager_mean_total_loss", batch_total_loss.average())  # per step - kan met data | DONE
@@ -315,6 +326,7 @@ class BinomialManager(torch.nn.Module):
         self.batch_ponder_cost = Accumulator()
         self.batch_planet_p = Accumulator()
         self.batch_ship_p = Accumulator()
+        self.batch_entropy = Accumulator()
 
         self.batch_object_features = []
         self.batch_state_features = []
