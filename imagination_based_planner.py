@@ -35,6 +35,8 @@ class ImaginationBasedPlanner:
         self.batch_n_planets_in_final_imagination = Accumulator()
         self.batch_f_planets_in_final_imagination = Accumulator()
 
+        self.batch_ship_p = Accumulator()
+
     def act(self):
         i_imagination = 0
 
@@ -105,6 +107,26 @@ class ImaginationBasedPlanner:
                     last_threshold = threshold
                     filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
 
+            if self.is_self_filtering() and (self.exp.conf.controller.han_per_imagination or i_imagination == 0):
+                objects = [imagined_trajectory[-1]] + self.exp.env.planets
+
+                filter_indices = [False] * len(objects)
+
+                norms = [x.detach().norm() for x in self.controller_and_memory.memory.get_object_embeddings(objects)]
+
+                top_indices = sorted(range(len(norms)), key=lambda i: norms[i])[-self.exp.conf.controller.han_n_top_objects:]
+
+                for ind in top_indices:
+                    filter_indices[ind] = True
+
+                if filter_indices[0]:
+                    self.batch_ship_p.add(1)
+                else:
+                    self.batch_ship_p.add(0)
+
+                self.batch_n_planets_in_each_imagination.add(filter_indices.count(True))
+                self.batch_f_planets_in_each_imagination.add(filter_indices.count(True) / len(filter_indices))
+
             if self.controller_and_memory is not None:
                 self.history_embedding = self.controller_and_memory.memory(
                     route=route_as_vector(self.exp.conf.imagination_strategy, route),
@@ -161,6 +183,9 @@ class ImaginationBasedPlanner:
             detached_action = selected_action.detach().numpy()
         else:
             detached_action = self.dummy_action()
+
+        if hasattr(self, 'measure_analyze_actions'):
+            self.actual_actions.append(np.linalg.norm(detached_action))
 
         old_ship_state = deepcopy(self.exp.env.agent_ship)
         actual_trajectory, actual_fuel_cost, actual_task_cost = self.perform_action(detached_action)
@@ -261,6 +286,9 @@ class ImaginationBasedPlanner:
 
         self.i_episode += 1
 
+    def is_self_filtering(self):
+        return self.controller_and_memory is not None and (self.exp.conf.controller.han_n_top_objects is not None or self.exp.conf.controller.han_n_top_objects is not None)
+
     def has_curator(self):
         return self.manager is not None and isinstance(self.manager, Curator)
 
@@ -289,6 +317,11 @@ class ImaginationBasedPlanner:
         self.exp.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
         self.batch_action_magnitude = Accumulator()
 
+        if self.is_self_filtering():
+            self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
+            self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
+            self.exp.log("manager_mean_ship_p", self.batch_ship_p.average())
+
         if self.manager is not None:
             self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
             self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
@@ -300,6 +333,7 @@ class ImaginationBasedPlanner:
         self.batch_f_planets_in_each_imagination = Accumulator()
         self.batch_n_planets_in_final_imagination = Accumulator()
         self.batch_f_planets_in_final_imagination = Accumulator()
+        self.batch_ship_p = Accumulator()
 
         self.exp.log("get_num_threads", torch.get_num_threads())
 
@@ -316,9 +350,10 @@ class ImaginationBasedPlanner:
     def i_episode_of_batch(self):
         return self.i_episode % self.exp.conf.n_episodes_per_batch
 
-    def store_model(self):
-        with open(self.exp.file_path('training_status.json'), 'w') as file:
-            json.dump(self.training_status, file, indent=2)
+    def store_model(self, training_status_update=True):
+        if training_status_update:
+            with open(self.exp.file_path('training_status.json'), 'w') as file:
+                json.dump(self.training_status, file, indent=2)
 
         self.imaginator.store_model()
 

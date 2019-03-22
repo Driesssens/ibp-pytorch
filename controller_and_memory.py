@@ -169,6 +169,15 @@ class SetController(torch.nn.Module):
             self.exp.agent.history_embedding
         ))
 
+        if hasattr(self.exp.agent, 'measure_analyze_actions'):
+            self.all_actions.append(np.linalg.norm(action.detach()))
+
+        if self.exp.conf.controller.max_action is not None:
+            if action.norm() > self.exp.conf.controller.max_action:
+                print("before: ({},{}) (norm {})".format(action[0], action[1], action.norm()))
+                action = self.exp.conf.controller.max_action / action.norm() * action
+                print("after: ({},{})".format(action[0], action[1]))
+
         return action
 
 

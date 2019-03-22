@@ -125,7 +125,11 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  memoryless=False,
                  effect_embedding_length=None,  # do not use
                  leaky=False,
-                 prelu=False
+                 prelu=False,
+                 max_action=None,
+                 han_n_top_objects=None,
+                 adahan_threshold=None,
+                 han_per_imagination=False
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -150,6 +154,12 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.selu = selu
         self.leaky = leaky
         self.prelu = prelu
+
+        self.max_action=max_action
+
+        self.han_n_top_objects=han_n_top_objects
+        self.adahan_threshold=adahan_threshold
+        self.han_per_imagination = han_per_imagination
 
 
 class ImaginatorConfiguration(Configuration):

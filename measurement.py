@@ -280,7 +280,8 @@ def performance_under_more_and_unobserved_planets(model_name, model_folders, n_m
     folders = ['measurements', 'controller_performance' if only_normal else 'performance_under_more_and_unobserved_planets', name]
     os.makedirs(os.path.join(*folders))
 
-    for mode in ('normal', 'only_ship_observed', 'extra_planets', 'extra_planets_unobserved'):
+    # for mode in ('normal', 'only_ship_observed', 'extra_planets', 'extra_planets_unobserved'):
+    for mode in ('normal', 'only_ship_observed'):
 
         if only_normal and mode in ('only_ship_observed', 'extra_planets', 'extra_planets_unobserved'):
             continue
@@ -312,6 +313,37 @@ def performance_under_more_and_unobserved_planets(model_name, model_folders, n_m
         plt.savefig(os.path.join(*(folders + ['controller_task_cost_on_{}'.format(mode)])))
 
 
+def analyze_actions(model_name, model_folders, n_measurements, name=None):
+    if name is None:
+        name = experiment_name(model_folders, model_name)
+
+    folders = ['measurements', 'analyze_actions', name]
+    os.makedirs(os.path.join(*folders))
+
+    experiment = Experiment.load(model_name, model_folders)
+    assert isinstance(experiment.agent.controller_and_memory.memory, SetMemory)
+
+    experiment.agent.measure_analyze_actions = True
+    experiment.agent.controller_and_memory.controller.all_actions = []
+    experiment.agent.actual_actions = []
+
+    experiment.evaluate(n_measurements)
+
+    all_actions = pd.Series(np.stack(experiment.agent.controller_and_memory.controller.all_actions))
+    actual_actions = pd.Series(np.stack(experiment.agent.actual_actions))
+
+    import matplotlib.pyplot as plt
+    all_actions.plot.hist(grid=True)
+    plt.title('#{}. mean: {}. min: {}. max: {}.'.format(n_measurements, all_actions.mean(), all_actions.min(), all_actions.max()))
+    plt.ylabel('controller all actions')
+    plt.savefig(os.path.join(*(folders + ['controller_all_actions'])))
+
+    actual_actions.plot.hist(grid=True)
+    plt.title('#{}. mean: {}. min: {}. max: {}.'.format(n_measurements, actual_actions.mean(), actual_actions.min(), actual_actions.max()))
+    plt.ylabel('controller actual actions')
+    plt.savefig(os.path.join(*(folders + ['controller_actual_actions'])))
+
+
 def experiment_name(model_folders, model_name, date_first=False):
     return "{}_{}.{}".format(datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"), '.'.join(model_folders), model_name)
 
@@ -328,4 +360,10 @@ def experiment_name(model_folders, model_name, date_first=False):
 # setmemory_object_embedding_introspection("selu_False-use_action_True-v_3-id_7", ('storage', 'lisa', 'prototype2'), 500)
 # imaginator_planet_embedding_introspection_2("cur-scratch-2weightless-1", ('storage', 'home', 'imag'), 100)
 
-performance_under_more_and_unobserved_planets("selu_False-embsize_50-use_i_imagination_True-use_action_True-hide_ship_state_True-agg_raw-id_1", ('storage', 'lisa', 'memoryless'), 500)
+# performance_under_more_and_unobserved_planets("selu_False-embsize_50-use_i_imagination_True-use_action_True-hide_ship_state_True-agg_raw-id_1", ('storage', 'lisa', 'memoryless'), 500)
+
+# analyze_actions("v_7-memoryless_True-id_6", ('storage', 'lisa', 'varia_hleak'), 5000)
+
+for i in range(5, 10):
+    name = "v_{}-memoryless_True-id_{}".format(i + 1, i)
+    performance_under_more_and_unobserved_planets(name, ('storage', 'lisa', 'varia_hleak'), 500)

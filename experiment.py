@@ -135,7 +135,7 @@ class Experiment:
     def file_path(self, file_name):
         return os.path.join(self.directory_path(), file_name)
 
-    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000):
+    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False):
         print("training {} for {} episodes".format(self.name, n_episodes))
 
         self.initialize_environment()
@@ -163,6 +163,18 @@ class Experiment:
                     self.measure_performance(measure_performance_n_sample_episodes, first)
                     first = False
 
+                    if continuous_store:
+                        old_path = self.path
+                        old_name = self.name
+
+                        self.path += (self.name,)
+                        self.name = '{}'.format(self.agent.i_episode)
+                        os.makedirs(self.directory_path())
+
+                        self.agent.store_model(training_status_update=False)
+
+                        self.path = old_path
+                        self.name = old_name
     def render(self):
         print("rendering {}".format(self.name))
 
