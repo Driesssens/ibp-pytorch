@@ -100,6 +100,35 @@ class Experiment:
         loaded_experiment.conf = configuration
 
         agent = ImaginationBasedPlanner(loaded_experiment)
+
+        # HACKY STUFF
+        try:
+            with open(loaded_experiment.file_path('training_status.json')) as file:
+                training_status = json.load(file)
+                root_episode = training_status['i_episode'] + 1
+                # print("root_episode: {}".format(root_episode))
+        except:
+            root_episode = 0
+
+        subfolders = [int(f.name) for f in os.scandir(loaded_experiment.directory_path()) if f.is_dir()]
+
+        if len(subfolders) == 0:
+            last_episode = root_episode
+        else:
+            # print("subfolders: {}".format(subfolders))
+            last_episode = str(max(root_episode, max(subfolders)))
+            # print("last_episode: {}".format(last_episode))
+
+        old_path = loaded_experiment.path
+        old_name = loaded_experiment.name
+
+        if root_episode < int(last_episode):
+            loaded_experiment.path += (loaded_experiment.name,)
+            loaded_experiment.name = '{}'.format(last_episode)
+
+        # print("path and name: {}, {}".format(loaded_experiment.path, loaded_experiment.name))
+        # / HACKY STUFF
+
         agent.load_model()
 
         if configuration.imaginator is not None:
@@ -115,6 +144,12 @@ class Experiment:
             agent.manager.load_model()
 
         loaded_experiment.agent = agent
+
+        # HACKY STUFF
+        loaded_experiment.path = old_path
+        loaded_experiment.name = old_name
+        # print("path and name: {}, {}".format(loaded_experiment.path, loaded_experiment.name))
+        # / HACKY STUFF
 
         return loaded_experiment
 
@@ -135,16 +170,21 @@ class Experiment:
     def file_path(self, file_name):
         return os.path.join(self.directory_path(), file_name)
 
-    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False):
+    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False, sparse_report=False):
+        if sparse_report and not continuous_store:
+            print("Warning: sparse report should only be used with continuous store. Will now disable sparse report")
+            sparse_report = False
+
         print("training {} for {} episodes".format(self.name, n_episodes))
 
         self.initialize_environment()
 
         self.env.render_after_each_step = False
         self.train_model = True
-        self.store_model = True
+        self.store_model = not sparse_report
 
         self.tensorboard_writer = tensorboardX.SummaryWriter(self.directory_path())
+
         first = True
 
         for i_episode in itertools.count():
@@ -153,12 +193,19 @@ class Experiment:
             for i_action in range(self.conf.n_actions_per_episode):
                 self.agent.act()
 
+            if sparse_report and not ((self.agent.i_episode + 1) % measure_performance_every_n_episodes == 0):
+                old_tensorboard_writer = self.tensorboard_writer
+                self.tensorboard_writer = None
+
             self.agent.finish_episode()
+
+            if sparse_report and not self.agent.i_episode % measure_performance_every_n_episodes == 0:
+                self.tensorboard_writer = old_tensorboard_writer
 
             if i_episode == n_episodes:
                 break
 
-            if measure_performance_every_n_episodes != 0 and self.tensorboard_writer is not None:
+            if measure_performance_every_n_episodes != 0:
                 if self.agent.i_episode % measure_performance_every_n_episodes == 0:
                     self.measure_performance(measure_performance_n_sample_episodes, first)
                     first = False
@@ -167,14 +214,19 @@ class Experiment:
                         old_path = self.path
                         old_name = self.name
 
+                        self.agent.i_episode -= 1
+
                         self.path += (self.name,)
                         self.name = '{}'.format(self.agent.i_episode)
                         os.makedirs(self.directory_path())
 
-                        self.agent.store_model(training_status_update=False)
+                        self.agent.store_model(training_status_update=True)
+
+                        self.agent.i_episode += 1
 
                         self.path = old_path
                         self.name = old_name
+
     def render(self):
         print("rendering {}".format(self.name))
 
