@@ -56,7 +56,7 @@ class Imaginator(torch.nn.Module):
             if not differentiable_trajectory:
                 current_state.detach_and_to_numpy()
 
-        target_position = torch.zeros(2)
+        target_position = torch.zeros(2) if len(self.exp.env.beacons) == 0 else torch.FloatTensor(self.exp.env.beacons[0].xy_position)
         imagined_task_cost = torch.nn.functional.mse_loss(imagined_ship_trajectory[-1].xy_position.unsqueeze(0), target_position.unsqueeze(0))
 
         if not differentiable_trajectory:
@@ -95,6 +95,9 @@ class Imaginator(torch.nn.Module):
         return effect_embeddings
 
     def forward(self, ship: Ship, planets: List[Planet], action):
+        if self.exp.conf.imaginator_ignores_secondary:
+            planets = [planet for planet in planets if not planet.is_secondary]
+
         effect_embeddings = self.embed(ship, planets)
 
         if hasattr(self, 'measure_imaginator_planet_embedding_introspection') and not isinstance(action, np.ndarray):

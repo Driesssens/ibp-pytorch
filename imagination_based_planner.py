@@ -87,7 +87,7 @@ class ImaginationBasedPlanner:
             self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
 
             if self.has_ppo_manager() and (self.exp.conf.manager.per_imagination or i_imagination == 0):
-                objects = [imagined_trajectory[-1]] + self.exp.env.planets
+                objects = [imagined_trajectory[-1]] + self.exp.env.planets + self.exp.env.beacons
 
                 if filter_indices is None:
                     filter_indices = [True] * len(objects)
@@ -108,16 +108,19 @@ class ImaginationBasedPlanner:
                     filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
 
             if self.is_self_filtering() and (self.exp.conf.controller.han_per_imagination or i_imagination == 0):
-                objects = [imagined_trajectory[-1]] + self.exp.env.planets
-
-                filter_indices = [False] * len(objects)
-
+                objects = [imagined_trajectory[-1]] + self.exp.env.planets + self.exp.env.beacons
                 norms = [x.detach().norm() for x in self.controller_and_memory.memory.get_object_embeddings(objects)]
 
-                top_indices = sorted(range(len(norms)), key=lambda i: norms[i])[-self.exp.conf.controller.han_n_top_objects:]
+                if self.exp.conf.controller.han_n_top_objects is not None:
+                    filter_indices = [False] * len(objects)
 
-                for ind in top_indices:
-                    filter_indices[ind] = True
+                    top_indices = sorted(range(len(norms)), key=lambda i: norms[i])[-self.exp.conf.controller.han_n_top_objects:]
+
+                    for ind in top_indices:
+                        filter_indices[ind] = True
+                elif self.exp.conf.controller.adahan_threshold is not None:
+                    zeros_and_ones = torch.nn.functional.softmax(torch.FloatTensor(norms)) > self.exp.conf.controller.adahan_threshold / len(norms)
+                    filter_indices = [x.item() == 1 for x in zeros_and_ones]
 
                 if filter_indices[0]:
                     self.batch_ship_p.add(1)
@@ -287,7 +290,7 @@ class ImaginationBasedPlanner:
         self.i_episode += 1
 
     def is_self_filtering(self):
-        return self.controller_and_memory is not None and (self.exp.conf.controller.han_n_top_objects is not None or self.exp.conf.controller.han_n_top_objects is not None)
+        return self.controller_and_memory is not None and ((self.exp.conf.controller.han_n_top_objects is not None) or (self.exp.conf.controller.adahan_threshold is not None))
 
     def has_curator(self):
         return self.manager is not None and isinstance(self.manager, Curator)
@@ -364,9 +367,12 @@ class ImaginationBasedPlanner:
             self.manager.store_model()
 
     def load_model(self):
-        with open(self.exp.file_path('training_status.json')) as file:
-            training_status = json.load(file)
-            self.i_episode = training_status['i_episode'] + 1
+        try:
+            with open(self.exp.file_path('training_status.json')) as file:
+                training_status = json.load(file)
+                self.i_episode = training_status['i_episode'] + 1
+        except FileNotFoundError:
+            self.i_episode = int(self.exp.name)
 
     @property
     def training_status(self):

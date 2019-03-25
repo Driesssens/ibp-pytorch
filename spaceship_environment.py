@@ -8,7 +8,7 @@ import copy
 from typing import List
 from utilities import tensor_from
 import torch
-
+import random
 import sys
 
 if sys.platform == 'win32':
@@ -136,7 +136,11 @@ class SpaceshipEnvironment(gym.Env):
                  render_after_each_step=False,
                  n_seconds_sleep_per_render=0.05,
                  euler_scale=1,
-                 implicit_euler=False):
+                 implicit_euler=False,
+                 with_beacons=False,
+                 beacon_probability=1,
+                 beacon_radial_distance_interval=(0.0, 1.5)
+                 ):
         """
         Args:
             n_planets (int): The number of planets randomly positioned in each episode.
@@ -169,6 +173,7 @@ class SpaceshipEnvironment(gym.Env):
 
         self.agent_ship = None
         self.planets = None
+        self.beacons = None
         self.i_step = None
         self.episode_cumulative_loss = None
 
@@ -229,13 +234,22 @@ class SpaceshipEnvironment(gym.Env):
         for _ in range(self.n_secondary_planets):
             self.planets.append(Planet(
                 random_mass_interval=self.secondary_planets_random_mass_interval,
-                random_radial_distance_interval=self.secondary_planets_random_radial_distance_interval
+                random_radial_distance_interval=self.secondary_planets_random_radial_distance_interval,
+                is_secondary=True
             ))
+
+        if self.with_beacons and np.random.rand() <= self.beacon_probability:
+            self.beacons = [Beacon(
+                mass=0,
+                random_radial_distance_interval=self.beacon_radial_distance_interval
+            )]
+        else:
+            self.beacons = []
 
         self.i_step = 0
         self.lowest_zoom_factor_this_episode = 1
 
-        for planet in self.planets:
+        for planet in self.planets + self.beacons:
             self.update_zoom_factor(planet.x, planet.y)
 
         self.past_ship_trajectories = []
@@ -342,6 +356,11 @@ class SpaceshipEnvironment(gym.Env):
 
             for planet in self.planets:
                 arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(planet.mass, planet=True), arcade.color.RED)
+
+            for beacon in self.beacons:
+                arcade.draw_line(self.screen_position(beacon.x-.1), self.screen_position(beacon.y), self.screen_position(beacon.x+.1), self.screen_position(beacon.y), arcade.color.TURQUOISE, 1)
+                arcade.draw_line(self.screen_position(beacon.x), self.screen_position(beacon.y-.1), self.screen_position(beacon.x), self.screen_position(beacon.y+.1), arcade.color.TURQUOISE, 1)
+                arcade.draw_lrtb_rectangle_outline(self.screen_position(beacon.x-.1), self.screen_position(beacon.x+.1), self.screen_position(beacon.y+.1), self.screen_position(beacon.y-.1), arcade.color.TURQUOISE, 1)
 
             for i_trajectory, trajectory in enumerate(self.imagined_ship_trajectories):
                 for i_from in range(len(trajectory) - 1):
@@ -524,11 +543,12 @@ class SpaceObject:
     class Types(Enum):
         AGENT_SHIP = 1
         PLANET = 2
+        BEACON = 3
 
-    def __init__(self, random_mass_interval=None, random_radial_distance_interval=None, mass=None, xy_position=None):
+    def __init__(self, random_mass_interval=None, random_radial_distance_interval=None, mass=None, xy_position=None, is_secondary=False):
         if random_mass_interval:
             self.mass = np.random.uniform(random_mass_interval[0], random_mass_interval[1])
-        elif mass:
+        elif mass is not None:
             self.mass = mass
         else:
             raise ValueError("Either random_mass_interval or mass must be set.")
@@ -543,9 +563,10 @@ class SpaceObject:
             raise ValueError("Either random_radial_distance_interval or xy_position must be set.")
 
         self.xy_velocity = np.zeros(2)
+        self.is_secondary = is_secondary
 
     def encode_type_one_hot(self):
-        type_one_hot_encoding = np.zeros(len(SpaceObject.Types))
+        type_one_hot_encoding = np.zeros(3 if self.with_beacons else 2)
         type_one_hot_encoding[self.type] = 1
         return type_one_hot_encoding
 
@@ -610,6 +631,10 @@ class Ship(SpaceObject):
 
 class Planet(SpaceObject):
     type = SpaceObject.Types.PLANET
+
+
+class Beacon(SpaceObject):
+    type = SpaceObject.Types.BEACON
 
 
 def cartesian2polar(x, y):

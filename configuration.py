@@ -155,10 +155,10 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.leaky = leaky
         self.prelu = prelu
 
-        self.max_action=max_action
+        self.max_action = max_action
 
-        self.han_n_top_objects=han_n_top_objects
-        self.adahan_threshold=adahan_threshold
+        self.han_n_top_objects = han_n_top_objects
+        self.adahan_threshold = adahan_threshold
         self.han_per_imagination = han_per_imagination
 
 
@@ -424,7 +424,11 @@ class GeneralConfiguration:
                  use_ship_mass=False,
                  imaginator=None,
                  controller=None,
-                 manager=None
+                 manager=None,
+                 imaginator_ignores_secondary=False,
+                 with_beacons=False,
+                 beacon_probability=1,
+                 beacon_radial_distance_interval=(0.0, 1.5)
                  ):
         self.n_planets = n_planets
         self.n_actions_per_episode = n_actions_per_episode
@@ -445,6 +449,10 @@ class GeneralConfiguration:
         self.imaginator = imaginator  # type: ImaginatorConfiguration
         self.controller = controller  # type: Union[ControllerConfiguration, SetControllerAndFlatMemoryConfiguration, SetControllerAndSetMemoryConfiguration]
         self.manager = manager  # type: Union[ManagerConfiguration, PPOManagerConfiguration, BinaryManagerConfiguration, BinomialManagerConfiguration, CuratorConfiguration]
+        self.imaginator_ignores_secondary = imaginator_ignores_secondary
+        self.with_beacons = with_beacons
+        self.beacon_probability = beacon_probability
+        self.beacon_radial_distance_interval = beacon_radial_distance_interval
 
     @property
     def routes_of_strategy(self):

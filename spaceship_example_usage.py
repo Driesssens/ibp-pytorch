@@ -12,7 +12,9 @@ game = SpaceshipEnvironment(
     implicit_euler=False,
     euler_scale=1,
     render_after_each_step=True,
-    agent_ship_random_mass_interval=(0.25, 0.25)
+    agent_ship_random_mass_interval=(0.25, 0.25),
+    with_beacons=False,
+    beacon_probability=0.0
 )
 
 game.reset()

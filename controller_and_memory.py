@@ -1,6 +1,6 @@
 from utilities import *
 from abc import ABC, abstractmethod
-from spaceship_environment import cartesian2polar, polar2cartesian, Planet
+from spaceship_environment import cartesian2polar, polar2cartesian, Planet, Beacon, Ship
 from copy import copy
 
 if False:
@@ -295,7 +295,7 @@ class SetMemory(torch.nn.Module):
 
         self.exp = experiment
 
-        object_vector_length = 7  # type (2) + mass (1) + position (2) + velocity (2)
+        object_vector_length = 8 if self.exp.conf.with_beacons else 7  # type (2/3) + mass (1) + position (2) + velocity (2)
 
         self.object_function = make_mlp_with_relu(
             input_size=object_vector_length,
@@ -337,8 +337,9 @@ class SetMemory(torch.nn.Module):
         for i in range(len(objects)):
             if objects[i] is not None:
                 tensor = tensor_from(
-                    0 if isinstance(objects[i], Planet) else 1,
+                    1 if isinstance(objects[i], Ship) else 0,
                     1 if isinstance(objects[i], Planet) else 0,
+                    (1 if isinstance(objects[i], Beacon) else 0) if self.exp.conf.with_beacons else None,
                     objects[i].mass,
                     objects[i].encode_state(False)
                 )
@@ -349,7 +350,7 @@ class SetMemory(torch.nn.Module):
         return objects
 
     def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination, filter_indices=None):
-        objects = [new_state] + self.exp.env.planets
+        objects = [new_state] + self.exp.env.planets + self.exp.env.beacons
 
         if filter_indices is not None:
             objects = [objekt for (objekt, filter_value) in zip(objects, filter_indices) if filter_value]
@@ -357,10 +358,10 @@ class SetMemory(torch.nn.Module):
         if hasattr(self, 'measure_performance_under_more_and_unobserved_planets'):
             if self.measure_performance_under_more_and_unobserved_planets == 'only_ship_observed':
                 assert filter_indices is None
-                objects = [new_state]
+                objects = [new_state] + self.exp.env.beacons
             elif self.measure_performance_under_more_and_unobserved_planets == 'extra_planets_unobserved':
                 assert filter_indices is None
-                objects = [new_state] + self.exp.env.planets[:-1]
+                objects = [new_state] + self.exp.env.planets[:-1] + self.exp.env.beacons
 
         object_embeddings = self.get_object_embeddings(objects)
 

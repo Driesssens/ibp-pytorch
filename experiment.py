@@ -4,7 +4,7 @@ import itertools
 import tensorboardX
 import torch
 import numpy as np
-
+import time
 from configuration import *
 from imagination_based_planner import ImaginationBasedPlanner
 from spaceship_environment import SpaceshipEnvironment
@@ -73,7 +73,7 @@ class Experiment:
         return new_experiment
 
     @classmethod
-    def load(cls, name, path=('storage', 'home', 'misc',)):
+    def load(cls, name, path=('storage', 'home', 'misc',), initialized_and_silenced=False, specific_instance=None):
         loaded_experiment = cls()
         loaded_experiment.name = name
         loaded_experiment.path = path
@@ -101,33 +101,40 @@ class Experiment:
 
         agent = ImaginationBasedPlanner(loaded_experiment)
 
-        # HACKY STUFF
-        try:
-            with open(loaded_experiment.file_path('training_status.json')) as file:
-                training_status = json.load(file)
-                root_episode = training_status['i_episode'] + 1
-                # print("root_episode: {}".format(root_episode))
-        except:
-            root_episode = 0
+        if specific_instance is None:
+            # HACKY STUFF
+            try:
+                with open(loaded_experiment.file_path('training_status.json')) as file:
+                    training_status = json.load(file)
+                    root_episode = training_status['i_episode'] + 1
+                    # print("root_episode: {}".format(root_episode))
+            except:
+                root_episode = 0
 
-        subfolders = [int(f.name) for f in os.scandir(loaded_experiment.directory_path()) if f.is_dir()]
+            subfolders = [int(f.name) for f in os.scandir(loaded_experiment.directory_path()) if f.is_dir()]
 
-        if len(subfolders) == 0:
-            last_episode = root_episode
+            if len(subfolders) == 0:
+                last_episode = root_episode
+            else:
+                # print("subfolders: {}".format(subfolders))
+                last_episode = str(max(root_episode, max(subfolders)))
+                # print("last_episode: {}".format(last_episode))
+
+            old_path = loaded_experiment.path
+            old_name = loaded_experiment.name
+
+            if root_episode < int(last_episode):
+                loaded_experiment.path += (loaded_experiment.name,)
+                loaded_experiment.name = '{}'.format(last_episode)
+
+            # print("path and name: {}, {}".format(loaded_experiment.path, loaded_experiment.name))
+            # / HACKY STUFF
         else:
-            # print("subfolders: {}".format(subfolders))
-            last_episode = str(max(root_episode, max(subfolders)))
-            # print("last_episode: {}".format(last_episode))
+            old_path = loaded_experiment.path
+            old_name = loaded_experiment.name
 
-        old_path = loaded_experiment.path
-        old_name = loaded_experiment.name
-
-        if root_episode < int(last_episode):
             loaded_experiment.path += (loaded_experiment.name,)
-            loaded_experiment.name = '{}'.format(last_episode)
-
-        # print("path and name: {}, {}".format(loaded_experiment.path, loaded_experiment.name))
-        # / HACKY STUFF
+            loaded_experiment.name = '{}'.format(str(specific_instance))
 
         agent.load_model()
 
@@ -151,7 +158,18 @@ class Experiment:
         # print("path and name: {}, {}".format(loaded_experiment.path, loaded_experiment.name))
         # / HACKY STUFF
 
+        if initialized_and_silenced:
+            loaded_experiment.initialize_and_silence()
+
         return loaded_experiment
+
+    def initialize_and_silence(self):
+        self.initialize_environment()
+        self.env.reset()
+        self.env.render_after_each_step = False
+        self.train_model = False
+        self.store_model = False
+        self.tensorboard_writer = None
 
     def __init__(self):
         self.conf = None  # type: GeneralConfiguration
@@ -227,7 +245,7 @@ class Experiment:
                         self.path = old_path
                         self.name = old_name
 
-    def render(self):
+    def render(self, slp=0):
         print("rendering {}".format(self.name))
 
         self.initialize_environment()
@@ -245,6 +263,7 @@ class Experiment:
                 self.agent.act()
 
             self.agent.finish_episode()
+            time.sleep(slp)
 
     def evaluate(self, n_episodes=-1):
         print("evaluating {} for {} episodes".format(self.name, n_episodes))
@@ -362,7 +381,10 @@ class Experiment:
             planets_random_mass_interval=self.conf.planets_random_mass_interval,
             planets_random_radial_distance_interval=self.conf.planets_random_radial_distance_interval,
             n_secondary_planets=self.conf.n_secondary_planets,
-            secondary_planets_random_mass_interval=self.conf.secondary_planets_random_mass_interval
+            secondary_planets_random_mass_interval=self.conf.secondary_planets_random_mass_interval,
+            with_beacons=self.conf.with_beacons,
+            beacon_probability=self.conf.beacon_probability,
+            beacon_radial_distance_interval=self.conf.beacon_radial_distance_interval
         )
 
     def log(self, name, value):
