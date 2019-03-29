@@ -23,15 +23,18 @@ def csvs(csv_path, must_include=None, must_exclude=None, joined=False, framed=Tr
     return output
 
 
-def csv_bootstrap_interval(frames, n_samples):
-    best_ones = pd.DataFrame([frame[-40:]['Value'].min() for frame in frames])
-    print(best_ones)
+def bootstrap_interval(frames, n_samples, best_of_last_n):
+    best_ones = pd.DataFrame([frame[-best_of_last_n:]['Value'].min() for frame in frames])
+    # print(best_ones)
     samples = np.stack([best_ones.sample(10, replace=True).values.squeeze() for _ in range(n_samples)])
     # print(samples)
     means = pd.DataFrame(samples.mean(axis=1))
     # print(means)
-    print("mean: {}".format(best_ones.mean().values.squeeze()))
-    print("confidence: {}".format(means.quantile([0.05, 0.95]).values.squeeze()))
+
+    mean = best_ones.mean().values.squeeze()
+    confidence = means.quantile([0.05, 0.95]).values.squeeze()
+    print("mean: {} ({})".format(mean, confidence))
+    return mean, confidence
 
 
 def create_csvs(source_path, tag, must_include=None, must_exclude=None):
@@ -63,6 +66,27 @@ def create_csvs(source_path, tag, must_include=None, must_exclude=None):
         session.close()
 
 
+def compare(frames1, frames2, best_of_last_n, at_steps):
+    for step in at_steps:
+        filtered1 = [frame[frame.Step <= step] for frame in frames1 if frame.Step.max() >= step]
+        filtered2 = [frame[frame.Step <= step] for frame in frames2 if frame.Step.max() >= step]
+
+        smallest_n = min(len(filtered1), len(filtered2))
+
+        print("At step {} on {} samples:".format(step, smallest_n))
+        bootstrap_interval(filtered1[:smallest_n], 10000, best_of_last_n)
+        bootstrap_interval(filtered2[:smallest_n], 10000, best_of_last_n)
+        print("----------------------------")
+
+
 # csv_bootstrap_interval("run_hleak_v_{}-memoryless_True-id_{}-tag-controller_mean.csv", [(n + 1, n) for n in range(10)], 10000)
-# create_csvs(('storage', 'lisa2', 'varia_hleak'), 'imaginator/mean', must_include='True')
-csv_bootstrap_interval(csvs(('csv', 'lisa2', 'varia_hleak', 'controller_mean')), 10000)
+# csv_bootstrap_interval(csvs(('csv', 'lisa2', 'varia_hleak', 'controller_mean')), 10000)
+# create_csvs(('storage', 'lisa2', 'varia_hleak'), 'controller/mean', must_include='True')
+# create_csvs(('storage', 'lisa2', 'varia_bootstrap'), 'controller/mean')
+#
+compare(
+    csvs(('csv', 'lisa2', 'varia_hleak', 'controller_mean'), must_include='True'),
+    csvs(('csv', 'lisa2', 'varia_bootstrap', 'controller_mean')),
+    best_of_last_n=40,
+    at_steps=[50000, 60000, 70000, 80000, 90000, 100000, 110000, 120000, 130000, 140000]
+)

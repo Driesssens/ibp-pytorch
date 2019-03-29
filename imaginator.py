@@ -153,7 +153,11 @@ class Imaginator(torch.nn.Module):
         evaluation = np.square(imagined_final_position - actual_final_position).mean()
         self.batch_evaluation.add(evaluation)
 
-        task_cost = np.square(actual_final_position).mean()
+        if len(self.exp.env.beacons) == 0:
+            task_cost = np.square(actual_final_position).mean()
+        else:
+            task_cost = np.square(actual_final_position - self.exp.env.beacons[0].xy_position).mean()
+
         self.batch_task_cost.add(task_cost)
 
         if self.exp.agent.has_curator():

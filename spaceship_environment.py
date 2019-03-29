@@ -355,7 +355,7 @@ class SpaceshipEnvironment(gym.Env):
             arcade.draw_line(self.screen_position(0), self.screen_position(-1), self.screen_position(0), self.screen_position(1), arcade.color.BLUE, 1)
 
             for planet in self.planets:
-                arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(planet.mass, planet=True), arcade.color.RED)
+                arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(max(planet.mass, 0.01), planet=True), arcade.color.RED)
 
             for beacon in self.beacons:
                 arcade.draw_line(self.screen_position(beacon.x-.1), self.screen_position(beacon.y), self.screen_position(beacon.x+.1), self.screen_position(beacon.y), arcade.color.TURQUOISE, 1)

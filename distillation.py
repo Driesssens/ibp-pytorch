@@ -212,7 +212,7 @@ class SequenceDistiller(torch.nn.Module):
             targs = []
 
             for line in self.lines:
-                seq, targ = line.get_batch(n_objects_per_epoch, stop=stop)
+                seq, targ, _ = line.get_batch(n_objects_per_epoch, stop=stop, balanced=True)
                 seqs.append(seq)
                 targs.append(targ)
 
@@ -235,12 +235,26 @@ class SequenceDistiller(torch.nn.Module):
 
             self.optimizer.step()
 
-    def evaluate(self, n_objects, line: ExperimentLine, stop=None):
-        seqs, targs = line.get_batch(n_objects, stop=stop)
+    def evaluate(self, n_objects, line: ExperimentLine, stop=None, balanced=False):
+        seqs, targs, types = line.get_batch(n_objects, stop=stop, balanced=balanced)
         predictions = self(seqs)
-        simple_loss = torch.nn.functional.l1_loss(predictions, targs).mean().item()
-        # print(simple_loss)
-        return simple_loss
+
+        simple_loss = torch.nn.functional.l1_loss(predictions, targs, reduction='none')
+        total_loss = simple_loss.mean().item()
+
+        planet_loss = simple_loss[types == 0].mean().item()
+        ship_loss = simple_loss[types == 1].mean().item()
+        beacon_loss = simple_loss[types == 2].mean().item() if line.conf.with_beacons else None
+
+        stri = "{:0.2f} | {:0.2f} [p: {:0.2f} | s: {:0.2f}{}]".format(
+            total_loss,
+            (planet_loss + ship_loss + beacon_loss) / 3 if line.conf.with_beacons else (planet_loss + ship_loss) / 2,
+            planet_loss,
+            ship_loss,
+            " | b: {:0.2f}".format(beacon_loss) if line.conf.with_beacons else ''
+        )
+
+        return stri, total_loss, planet_loss, ship_loss, beacon_loss
 
 
 def tryout():
@@ -281,10 +295,18 @@ def compare_mix():
         print(sorted(res))
 
 
+def train_on_one():
+    eval = ExperimentLine(name="many-10_v1", path=('storage', 'home', 'memless'))
+
+    distiller = SequenceDistiller(eval)
+    distiller.training_do(100, 20, printit=True, stop=10)
+    distiller.evaluate(200, eval, stop=25)
+
+
 def tryout_seq():
     # line1 = ExperimentLine(name="max_action_None-fuel_0-max_imag_4-5", path=('storage', 'home', 'memless'))
-    line2 = ExperimentLine(name="max_action_None-fuel_0-max_imag_4-4", path=('storage', 'home', 'memless'))
-    line3 = ExperimentLine(name="max_action_None-fuel_0-max_imag_4-3", path=('storage', 'home', 'memless'))
+    # line2 = ExperimentLine(name="max_action_None-fuel_0-max_imag_4-4", path=('storage', 'home', 'memless'))
+    # line3 = ExperimentLine(name="max_action_None-fuel_0-max_imag_4-3", path=('storage', 'home', 'memless'))
     # line4 = ExperimentLine(name="han_top_1_v2", path=('storage', 'home', 'memless'))
 
     lines = [ExperimentLine(name=name, path=('storage', 'lisa2', 'han1')) for name in [
@@ -295,23 +317,37 @@ def tryout_seq():
         # "v_6-scratch_True-n_han_1-id_5",
         # "v_1-scratch_True-n_han_1-id_0",
         # "v_8-scratch_True-n_han_1-id_7"
-    ]] + [line2, line3]
+    ]]
 
     eval = ExperimentLine(name="many-10_v1", path=('storage', 'home', 'memless'))
 
-    distiller = SequenceDistiller(lines)
-    distiller.training_do(100, 20, printit=True, stop=10)
+    distiller = SequenceDistiller(lines[:2])
+    distiller.training_do(100, 20, printit=True, stop=15)
 
-    for i in range(1, 25):
-        print("{}: {}".format(i, distiller.evaluate(200, eval, stop=i)))
+    for i in range(5, 30):
+        stri = distiller.evaluate(200, lines[2], stop=i)[0]
+        print("{}@{}: {}".format(15, i, stri))
 
 
-def train_on_one():
-    eval = ExperimentLine(name="many-10_v1", path=('storage', 'home', 'memless'))
+def check_out(line: ExperimentLine, stop=None):
+    torch.set_printoptions(profile="full", linewidth=1000, precision=5)
+    objects, targets, types = line.get_batch(3 if line.env.with_beacons else 2, True, stop=stop)
 
-    distiller = SequenceDistiller(eval)
-    distiller.training_do(100, 20, printit=True, stop=10)
-    distiller.evaluate(200, eval, stop=25)
+    print("ship ({}) for {}".format(types[2 if line.env.with_beacons else 1], line.name))
+    print("")
+    print(objects[2 if line.env.with_beacons else 1])
+    print("")
+
+    print("planet ({}) for {}".format(types[1 if line.env.with_beacons else 0], line.name))
+    print("")
+    print(objects[1 if line.env.with_beacons else 0])
+    print("")
+
+    if line.env.with_beacons:
+        print("beacon ({}) for {}".format(types[0], line.name))
+        print("")
+        print(objects[0])
+        print("")
 
 
 tryout_seq()

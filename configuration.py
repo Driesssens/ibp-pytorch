@@ -4,6 +4,7 @@ from typing import Union
 
 from controller_and_memory import ControllerAndMemory, SetControllerAndFlatMemory, SetControllerAndSetMemory
 from imaginator import Imaginator
+from full_imaginator import FullImaginator
 from manager import Manager, PPOManager
 from binary_manager import BinaryManager, BinomialManager
 from curator import Curator
@@ -129,6 +130,7 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  max_action=None,
                  han_n_top_objects=None,
                  adahan_threshold=None,
+                 simplehan_threshold=None,
                  han_per_imagination=False
                  ):
         self.learning_rate = learning_rate
@@ -160,10 +162,34 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.han_n_top_objects = han_n_top_objects
         self.adahan_threshold = adahan_threshold
         self.han_per_imagination = han_per_imagination
+        self.simplehan_threshold = simplehan_threshold
 
 
 class ImaginatorConfiguration(Configuration):
     the_class = Imaginator
+
+    def __init__(self,
+                 relation_module_layer_sizes=(150, 150, 150, 150),
+                 effect_embedding_length=100,
+                 object_module_layer_sizes=(100,),
+                 velocity_normalization_factor=7.5,
+                 action_normalization_factor=0.5,
+                 learning_rate=0.001,
+                 max_gradient_norm=10,
+                 batch_loss_sum=False
+                 ):
+        self.relation_module_layer_sizes = relation_module_layer_sizes
+        self.effect_embedding_length = effect_embedding_length
+        self.object_module_layer_sizes = object_module_layer_sizes
+        self.velocity_normalization_factor = velocity_normalization_factor
+        self.action_normalization_factor = action_normalization_factor
+        self.learning_rate = learning_rate
+        self.max_gradient_norm = max_gradient_norm
+        self.batch_loss_sum = batch_loss_sum
+
+
+class FullImaginatorConfiguration(Configuration):
+    the_class = FullImaginator
 
     def __init__(self,
                  relation_module_layer_sizes=(150, 150, 150, 150),

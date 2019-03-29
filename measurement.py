@@ -351,7 +351,6 @@ def experiment_name(model_folders, model_name, date_first=False):
 # imaginator_planet_embedding_introspection("set_controller_bugtest-4p-4imag-nofuel", ('storage', 'home', 'misc'), 100)
 # imaginator_planet_embedding_introspection("setcontroller_effects_not-only_history_no_state", ('storage', 'home', 'misc'), 1000)
 # controller_planet_embedding_introspection("setcontroller_reactive", ('storage', 'home', 'misc'), 300)
-# setmemory_object_embedding_introspection("selu_False-embsize_50-use_i_imagination_False-use_action_True-hide_ship_state_True-agg_raw-id_5", ('storage', 'lisa', 'memoryless'), 500)
 
 # performance_under_more_and_unobserved_planets("use_i_imagination_False-use_action_True-hide_ship_state_True-aggregate_layer_False-id_9", ('storage', 'lisa', 'prototype'), 500)
 # performance_under_more_and_unobserved_planets("selu_False-use_action_True-v_3-id_7", ('storage', 'lisa', 'prototype2'), 1000, only_normal=True)
@@ -364,6 +363,8 @@ def experiment_name(model_folders, model_name, date_first=False):
 
 # analyze_actions("v_7-memoryless_True-id_6", ('storage', 'lisa', 'varia_hleak'), 5000)
 
-for i in range(5, 10):
-    name = "v_{}-memoryless_True-id_{}".format(i + 1, i)
-    performance_under_more_and_unobserved_planets(name, ('storage', 'lisa', 'varia_hleak'), 500)
+# for i in range(5, 10):
+#     name = "v_{}-memoryless_True-id_{}".format(i + 1, i)
+#     performance_under_more_and_unobserved_planets(name, ('storage', 'lisa', 'varia_hleak'), 500)
+
+setmemory_object_embedding_introspection("many-10_bootstrapped_v1", ('storage', 'home', 'memless'), 500)

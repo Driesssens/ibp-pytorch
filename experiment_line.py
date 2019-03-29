@@ -40,22 +40,34 @@ class ExperimentLine:
     def get_batch(self, n_objects, balanced=False, start=0, stop=None, skip=1, as_tensor=True):
         seqs = []
         targets = []
+        types = []
+
+        objects = []
 
         for i in range(n_objects):
-            if i % (2 if balanced else len(self.env.planets) + 1) == 0:
-                self.env.reset()
-                objects = [self.env.agent_ship] + self.env.planets
+            if len(objects) == 0:
+                if balanced:
+                    self.env.beacon_probability = 1
 
-            objekt = objects[i % (2 if balanced else len(objects))]
+                self.env.reset()
+
+                if balanced:
+                    objects = [self.env.agent_ship] + self.env.planets[:1] + self.env.beacons
+                else:
+                    objects = [self.env.agent_ship] + self.env.planets + self.env.beacons
+
+            objekt = objects.pop()
 
             seqs.append(self.object_to_seq(objekt, start=start, stop=stop, skip=skip))
-            targets.append(torch.FloatTensor([1]) if isinstance(objekt, Ship) else torch.FloatTensor([0]))
+            targets.append(torch.FloatTensor([0]) if isinstance(objekt, Planet) else torch.FloatTensor([1]))
+            types.append(torch.Tensor([0]) if isinstance(objekt, Planet) else (torch.Tensor([1]) if isinstance(objekt, Ship) else torch.Tensor([2])))
 
         if as_tensor:
             seqs = torch.stack(seqs)
             targets = torch.stack(targets)
+            types = torch.stack(types)
 
-        return seqs, targets
+        return seqs, targets, types
 
 
 def bugtest():

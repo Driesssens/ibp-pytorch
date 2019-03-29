@@ -119,13 +119,24 @@ class ImaginationBasedPlanner:
                     for ind in top_indices:
                         filter_indices[ind] = True
                 elif self.exp.conf.controller.adahan_threshold is not None:
-                    zeros_and_ones = torch.nn.functional.softmax(torch.FloatTensor(norms)) > self.exp.conf.controller.adahan_threshold / len(norms)
+                    zeros_and_ones = torch.nn.functional.softmax(torch.FloatTensor(norms)) >= self.exp.conf.controller.adahan_threshold / len(norms)
+                    filter_indices = [x.item() == 1 for x in zeros_and_ones]
+                elif self.exp.conf.controller.simplehan_threshold is not None:
+                    zeros_and_ones = torch.FloatTensor(norms) >= self.exp.conf.controller.simplehan_threshold * torch.FloatTensor(norms).mean()
                     filter_indices = [x.item() == 1 for x in zeros_and_ones]
 
-                if filter_indices[0]:
-                    self.batch_ship_p.add(1)
+                if len(self.exp.env.beacons) == 0:
+                    if filter_indices[0]:
+                        self.batch_ship_p.add(1)
+                    else:
+                        self.batch_ship_p.add(0)
                 else:
-                    self.batch_ship_p.add(0)
+                    if filter_indices[0] and filter_indices[-1]:
+                        self.batch_ship_p.add(1)
+                    elif filter_indices[0] or filter_indices[-1]:
+                        self.batch_ship_p.add(0.5)
+                    else:
+                        self.batch_ship_p.add(0)
 
                 self.batch_n_planets_in_each_imagination.add(filter_indices.count(True))
                 self.batch_f_planets_in_each_imagination.add(filter_indices.count(True) / len(filter_indices))
@@ -290,7 +301,11 @@ class ImaginationBasedPlanner:
         self.i_episode += 1
 
     def is_self_filtering(self):
-        return self.controller_and_memory is not None and ((self.exp.conf.controller.han_n_top_objects is not None) or (self.exp.conf.controller.adahan_threshold is not None))
+        return self.controller_and_memory is not None and (
+                (self.exp.conf.controller.han_n_top_objects is not None) or
+                (self.exp.conf.controller.adahan_threshold is not None) or
+                (self.exp.conf.controller.simplehan_threshold is not None)
+        )
 
     def has_curator(self):
         return self.manager is not None and isinstance(self.manager, Curator)
