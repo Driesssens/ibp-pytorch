@@ -5,14 +5,117 @@ from sklearn.decomposition import PCA
 import numpy as np
 import os
 import datetime
-from spaceship_environment import cartesian2polar, polar2cartesian
+from spaceship_environment import cartesian2polar, polar2cartesian, Planet, Ship, GravityCap
+import matplotlib
+import math
 
 
-def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_measurements, name=None):
+def full_imaginator_embedding_introspection(model_name, model_folders, n_measurements):
+    name = experiment_name(model_folders, model_name)
+    folders = ['measurements', 'full_imaginator_embedding_introspection', name]
+    os.makedirs(os.path.join(*folders))
+
+    experiment = Experiment.load(model_name, model_folders)
+    experiment.conf.max_imaginations_per_action = 0
+
+    ship_embeddings_list = []
+    ship_metrics_list = []
+
+    planet_embeddings_list = []
+    planet_metrics_list = []
+
+    experiment.initialize_environment()
+    experiment.env.render_after_each_step = False
+
+    for _ in range(n_measurements):
+        experiment.env.reset()
+
+        for subject in experiment.env.planets:
+            influencers = [x for x in experiment.env.planets if x is not subject] + [experiment.env.agent_ship]
+
+            planet_effect_embeddings = experiment.agent.imaginator.embed(subject, influencers)
+
+            for i, embedding in enumerate(planet_effect_embeddings):
+                influencer = influencers[i]
+
+                actual_radius = np.linalg.norm(subject.xy_position - influencer.xy_position)
+                pretended_radius = actual_radius
+
+                pretended_xy_distance = influencer.xy_position - subject.xy_position
+                minimal_radius = influencer.mass
+
+                if pretended_radius < minimal_radius:
+                    pretended_radius = minimal_radius
+                    actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
+                    pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
+
+                xy_gravitational_force = experiment.env.gravitational_constant * influencer.mass * subject.mass * pretended_xy_distance / actual_radius ** 3
+                gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
+
+                planet_embeddings_list.append(embedding.detach().numpy())
+                planet_metrics_list.append([influencer.mass, actual_radius, gravitational_force_magnitude, 2 if isinstance(influencer, Planet) else 3])
+
+        ship_effect_embeddings = experiment.agent.imaginator.embed(experiment.env.agent_ship, experiment.env.planets)
+
+        for i, embedding in enumerate(ship_effect_embeddings):
+            planet = experiment.env.planets[i]
+
+            actual_radius = np.linalg.norm(experiment.env.agent_ship.xy_position - planet.xy_position)
+            pretended_radius = actual_radius
+
+            pretended_xy_distance = planet.xy_position - experiment.env.agent_ship.xy_position
+            minimal_radius = planet.mass
+
+            if pretended_radius < minimal_radius:
+                pretended_radius = minimal_radius
+                actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
+                pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
+
+            xy_gravitational_force = experiment.env.gravitational_constant * planet.mass * experiment.env.agent_ship.mass * pretended_xy_distance / pretended_radius ** 3
+            gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
+
+            ship_embeddings_list.append(embedding.detach().numpy())
+            ship_metrics_list.append([planet.mass, actual_radius, gravitational_force_magnitude, 0 if planet.is_secondary else 1])
+
+    combined_embeddings_list = planet_embeddings_list + ship_embeddings_list
+    combined_metrics_list = planet_metrics_list + ship_metrics_list
+
+    for title, embeddings_list, metrics_list in zip(
+            ('combined', 'ship', 'planet'),
+            (combined_embeddings_list, ship_embeddings_list, planet_embeddings_list),
+            (combined_metrics_list, ship_metrics_list, planet_metrics_list)):
+
+        embedding_statistics = analyze_embeddings(embeddings_list, 3, True)
+
+        metrics = pd.DataFrame(
+            metrics_list,
+            columns=['mass', 'dist', 'force', 'seco']
+        )
+
+        results = pd.concat([embedding_statistics, metrics], axis=1)
+
+        for base in ['mass', 'dist', 'force']:
+            for metric in ['norm']:
+                scatter_plot = results.plot.scatter(
+                    x=base,
+                    y=metric,
+                    c='seco',
+                    cmap=matplotlib.colors.ListedColormap(['red', 'green', 'blue', 'purple']),
+                    logx=title != 'ship' and base == 'force'
+                    # s=(results['mass'] ** 2) * 250,
+                ).get_figure()
+
+                scatter_plot.savefig(os.path.join(*(folders + ['{}_{}_scatter.png'.format(title, base)])))
+
+        import matplotlib.pyplot as plt
+        pd.plotting.scatter_matrix(results)
+        plt.savefig(os.path.join(*(folders + ['{}_matrix_scatter'.format(title)])))
+
+
+def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_measurements, name=None, color_is_secondary=True):
     experiment = Experiment.load(model_name, model_folders)
 
-    if name is None:
-        name = "{}_{}".format(model_name, datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"))
+    name = experiment_name(model_folders, model_name)
 
     folders = ['measurements', 'imaginator_planet_embedding_introspection2', name]
     os.makedirs(os.path.join(*folders))
@@ -36,7 +139,11 @@ def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_mea
             pretended_radius = actual_radius
 
             pretended_xy_distance = planet.xy_position - experiment.env.agent_ship.xy_position
-            minimal_radius = planet.mass
+
+            if experiment.conf.gravity_cap is GravityCap.Low:
+                minimal_radius = planet.mass
+            elif experiment.conf.gravity_cap is GravityCap.Realistic:
+                minimal_radius = np.cbrt(planet.mass / (2 * math.pi))
 
             if pretended_radius < minimal_radius:
                 pretended_radius = minimal_radius
@@ -47,27 +154,31 @@ def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_mea
             gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
 
             embeddings_list.append(embedding.detach().numpy())
-            metrics_list.append([planet.mass, actual_radius, gravitational_force_magnitude])
+            print(planet.is_secondary)
+            metrics_list.append([planet.mass, actual_radius, pretended_radius, gravitational_force_magnitude, 0 if planet.is_secondary else 1])
 
     embedding_statistics = analyze_embeddings(embeddings_list, 3, True)
 
     metrics = pd.DataFrame(
         metrics_list,
-        columns=['mass', 'dist', 'force']
+        columns=['mass', 'dist', 'radi', 'force', 'seco']
     )
 
     results = pd.concat([embedding_statistics, metrics], axis=1)
 
-    for metric in ['norm', 'pc1', 'pc2', 'pc3']:
-        scatter_plot = results.plot.scatter(
-            x='force',
-            y=metric,
-            c='dist',
-            s=(results['mass'] ** 2) * 250,
-            colormap='viridis',
-        ).get_figure()
+    for base in ['mass', 'dist', 'radi', 'force']:
+        for log in [False, True]:
+            for metric in ['norm']:
+                scatter_plot = results.plot.scatter(
+                    x=base,
+                    y=metric,
+                    c='seco' if color_is_secondary else 'dist',
+                    s=0.1,
+                    cmap=matplotlib.colors.ListedColormap(['red', 'blue']),
+                    logy=log,
+                ).get_figure()
 
-        scatter_plot.savefig(os.path.join(*(folders + ['scatter_{}.png'.format(metric)])))
+                scatter_plot.savefig(os.path.join(*(folders + ['{}_scatter_{}{}.png'.format(base, metric, '_log' if log else '')])))
 
     import matplotlib.pyplot as plt
     pd.plotting.scatter_matrix(results)
@@ -345,7 +456,7 @@ def analyze_actions(model_name, model_folders, n_measurements, name=None):
 
 
 def experiment_name(model_folders, model_name, date_first=False):
-    return "{}_{}.{}".format(datetime.datetime.now().strftime("%Y-%m-%d-%H.%M"), '.'.join(model_folders), model_name)
+    return "{}_{}.{}".format(datetime.datetime.now().strftime("%Y-%m-%d-%H.%M.%S"), '.'.join(model_folders), model_name)
 
 
 # imaginator_planet_embedding_introspection("set_controller_bugtest-4p-4imag-nofuel", ('storage', 'home', 'misc'), 100)
@@ -367,4 +478,8 @@ def experiment_name(model_folders, model_name, date_first=False):
 #     name = "v_{}-memoryless_True-id_{}".format(i + 1, i)
 #     performance_under_more_and_unobserved_planets(name, ('storage', 'lisa', 'varia_hleak'), 500)
 
-setmemory_object_embedding_introspection("many-10_bootstrapped_v1", ('storage', 'home', 'memless'), 500)
+# setmemory_object_embedding_introspection("many-10_bootstrapped_v1", ('storage', 'home', 'memless'), 500)
+
+imaginator_planet_embedding_introspection_2("imgrea-many_4-l2_0-tresh_None-close_True-per_imag_False-l2of_False-sbf_False-v2", ('storage', 'home', 'memless'), 200)
+
+# full_imaginator_embedding_introspection("full-many_0-none-l2_0", ('storage', 'home', 'memless'), 200)

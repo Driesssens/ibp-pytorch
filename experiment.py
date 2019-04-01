@@ -382,9 +382,11 @@ class Experiment:
             planets_random_radial_distance_interval=self.conf.planets_random_radial_distance_interval,
             n_secondary_planets=self.conf.n_secondary_planets,
             secondary_planets_random_mass_interval=self.conf.secondary_planets_random_mass_interval,
+            secondary_planets_random_radial_distance_interval=self.conf.secondary_planets_random_radial_distance_interval,
             with_beacons=self.conf.with_beacons,
             beacon_probability=self.conf.beacon_probability,
-            beacon_radial_distance_interval=self.conf.beacon_radial_distance_interval
+            beacon_radial_distance_interval=self.conf.beacon_radial_distance_interval,
+            cap_gravity=self.conf.gravity_cap
         )
 
     def log(self, name, value):

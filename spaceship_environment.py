@@ -1,5 +1,5 @@
 import gym
-from enum import Enum
+from enum import Enum, IntEnum
 import numpy as np
 import os
 from datetime import datetime
@@ -10,6 +10,7 @@ from utilities import tensor_from
 import torch
 import random
 import sys
+import math
 
 if sys.platform == 'win32':
     import imageio
@@ -55,10 +56,11 @@ SETTINGS_FROM_PAPERS = {
 }
 
 
-class GravityCap(Enum):
+class GravityCap(IntEnum):
     No = 1
     Low = 2
     High = 3
+    Realistic = 4
 
 
 DEFAULT = object()  # Set init argument to DEFAULT to get setting from the chosen paper's experimental setup
@@ -211,37 +213,42 @@ class SpaceshipEnvironment(gym.Env):
     def reset(self):
         self.agent_ship = Ship(
             random_mass_interval=self.agent_ship_random_mass_interval,
-            random_radial_distance_interval=self.agent_ship_random_radial_distance_interval
+            random_radial_distance_interval=self.agent_ship_random_radial_distance_interval,
+            ide=0
         )
 
         self.planets = [
             Planet(
                 random_mass_interval=self.planets_random_mass_interval,
-                random_radial_distance_interval=self.planets_random_radial_distance_interval
+                random_radial_distance_interval=self.planets_random_radial_distance_interval,
+                ide=i + 1
             )
-            for _ in range(self.n_planets)
+            for i in range(self.n_planets)
         ]
 
         if self.n_planets > 0 and self.sun_random_radial_distance_interval:
             self.planets[0] = Planet(
                 random_mass_interval=self.planets_random_mass_interval,
-                random_radial_distance_interval=self.sun_random_radial_distance_interval
+                random_radial_distance_interval=self.sun_random_radial_distance_interval,
+                ide=1
             )
 
         if self.n_planets > 0 and self.sun_mass:
             self.planets[0].mass = self.sun_mass
 
-        for _ in range(self.n_secondary_planets):
+        for i in range(self.n_secondary_planets):
             self.planets.append(Planet(
                 random_mass_interval=self.secondary_planets_random_mass_interval,
                 random_radial_distance_interval=self.secondary_planets_random_radial_distance_interval,
-                is_secondary=True
+                is_secondary=True,
+                ide=self.n_planets + 1 + i
             ))
 
         if self.with_beacons and np.random.rand() <= self.beacon_probability:
             self.beacons = [Beacon(
                 mass=0,
-                random_radial_distance_interval=self.beacon_radial_distance_interval
+                random_radial_distance_interval=self.beacon_radial_distance_interval,
+                ide=self.n_planets + self.n_secondary_planets + 1
             )]
         else:
             self.beacons = []
@@ -258,6 +265,15 @@ class SpaceshipEnvironment(gym.Env):
         self.episode_cumulative_loss = 0
 
         return self.observation(True)
+
+    def obj(self, ide):
+        return self.objs()[ide]
+
+    def n_obj(self):
+        return len(self.objs())
+
+    def objs(self):
+        return [self.agent_ship] + self.planets + self.beacons
 
     def observation(self, increase_episode=False):
         if self.render_after_each_step:
@@ -289,6 +305,9 @@ class SpaceshipEnvironment(gym.Env):
 
                 if self.cap_gravity is not GravityCap.No:
                     minimal_radius = planet.mass
+
+                    if self.cap_gravity is GravityCap.Realistic:
+                        minimal_radius = np.cbrt(planet.mass / (2 * math.pi))
 
                     if self.cap_gravity is GravityCap.High:
                         minimal_radius += self.agent_ship.mass * 2.8
@@ -356,11 +375,12 @@ class SpaceshipEnvironment(gym.Env):
 
             for planet in self.planets:
                 arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(max(planet.mass, 0.01), planet=True), arcade.color.RED)
+                # arcade.draw_text("{:1.2f}".format(planet.mass), self.screen_position(planet.x), self.screen_position(planet.y), arcade.color.RED, self.screen_size(0.25), align='center', width=10, anchor_x='center')
 
             for beacon in self.beacons:
-                arcade.draw_line(self.screen_position(beacon.x-.1), self.screen_position(beacon.y), self.screen_position(beacon.x+.1), self.screen_position(beacon.y), arcade.color.TURQUOISE, 1)
-                arcade.draw_line(self.screen_position(beacon.x), self.screen_position(beacon.y-.1), self.screen_position(beacon.x), self.screen_position(beacon.y+.1), arcade.color.TURQUOISE, 1)
-                arcade.draw_lrtb_rectangle_outline(self.screen_position(beacon.x-.1), self.screen_position(beacon.x+.1), self.screen_position(beacon.y+.1), self.screen_position(beacon.y-.1), arcade.color.TURQUOISE, 1)
+                arcade.draw_line(self.screen_position(beacon.x - .1), self.screen_position(beacon.y), self.screen_position(beacon.x + .1), self.screen_position(beacon.y), arcade.color.TURQUOISE, 1)
+                arcade.draw_line(self.screen_position(beacon.x), self.screen_position(beacon.y - .1), self.screen_position(beacon.x), self.screen_position(beacon.y + .1), arcade.color.TURQUOISE, 1)
+                arcade.draw_lrtb_rectangle_outline(self.screen_position(beacon.x - .1), self.screen_position(beacon.x + .1), self.screen_position(beacon.y + .1), self.screen_position(beacon.y - .1), arcade.color.TURQUOISE, 1)
 
             for i_trajectory, trajectory in enumerate(self.imagined_ship_trajectories):
                 for i_from in range(len(trajectory) - 1):
@@ -545,7 +565,7 @@ class SpaceObject:
         PLANET = 2
         BEACON = 3
 
-    def __init__(self, random_mass_interval=None, random_radial_distance_interval=None, mass=None, xy_position=None, is_secondary=False):
+    def __init__(self, random_mass_interval=None, random_radial_distance_interval=None, mass=None, xy_position=None, is_secondary=False, ide=None):
         if random_mass_interval:
             self.mass = np.random.uniform(random_mass_interval[0], random_mass_interval[1])
         elif mass is not None:
@@ -564,6 +584,7 @@ class SpaceObject:
 
         self.xy_velocity = np.zeros(2)
         self.is_secondary = is_secondary
+        self.ide = ide
 
     def encode_type_one_hot(self):
         type_one_hot_encoding = np.zeros(3 if self.with_beacons else 2)
@@ -593,6 +614,17 @@ class SpaceObject:
 
     def state_is_tensor(self):
         return not (isinstance(self.xy_position, np.ndarray) and isinstance(self.xy_velocity, np.ndarray))
+
+    def __hash__(self):
+        return hash(self.ide)
+
+    def __eq__(self, other):
+        return self.ide == other.ide
+
+    def __ne__(self, other):
+        # Not strictly necessary, but to avoid having both x==y and x!=y
+        # True at the same time
+        return not (self == other)
 
     @property
     def x(self):

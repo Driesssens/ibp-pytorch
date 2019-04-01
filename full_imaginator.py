@@ -1,5 +1,5 @@
 from utilities import *
-from spaceship_environment import Ship, Planet, polar2cartesian, cartesian2polar, SpaceObject
+from spaceship_environment import Ship, Planet, polar2cartesian, cartesian2polar, SpaceObject, Beacon
 from typing import List
 from copy import deepcopy
 
@@ -32,12 +32,14 @@ class FullImaginator(torch.nn.Module):
 
         self.batch_loss = Accumulator()
         self.batch_evaluation = Accumulator()
+        self.batch_static_evaluation = Accumulator()
+        self.batch_dynamic_evaluation = Accumulator()
         self.batch_task_cost = Accumulator()
 
         self.optimizer = torch.optim.Adam(self.parameters(), self.exp.conf.imaginator.learning_rate)
 
     def imagine(self, subject: SpaceObject, influencers: List[SpaceObject], action, differentiable_trajectory=False):
-        imagined_ship_trajectory = [deepcopy(ship)]
+        imagined_ship_trajectory = [deepcopy(subject)]
         imagined_ship_trajectory[-1].wrap_in_tensors()
 
         for i_physics_step in range(self.exp.env.n_steps_per_action):
@@ -48,7 +50,7 @@ class FullImaginator(torch.nn.Module):
 
             imagined_velocity = self(
                 current_state,
-                planets,
+                influencers,
                 action if i_physics_step == 0 else np.zeros(2)
             )
 
@@ -71,57 +73,35 @@ class FullImaginator(torch.nn.Module):
 
         return imagined_ship_trajectory, imagined_task_cost, imagined_fuel_cost
 
-    def filter(self, ship: Ship, planets: List[Planet], threshold):
-        with torch.no_grad():
-            effect_embeddings = [
-                self.relation_module(tensor_from(
-                    ship.mass if self.exp.conf.use_ship_mass else None,
-                    planet.mass,
-                    tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
-                )) for planet in planets
-            ]
-
-        norms = [effect_embedding.norm().item() for effect_embedding in effect_embeddings]
-
-        return [planet for (planet, norm) in zip(planets, norms) if norm > threshold]
-
-    def embed(self, ship: Ship, planets: List[Planet]):
+    def embed(self, subject: SpaceObject, influencers: List[SpaceObject]):
         effect_embeddings = [
             self.relation_module(tensor_from(
-                ship.mass if self.exp.conf.use_ship_mass else None,
-                planet.mass,
-                tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
-            )) for planet in planets
+                self.type_tensor(subject),
+                subject.mass,
+                self.type_tensor(influencer),
+                influencer.mass,
+                tensor_from(subject.xy_position) - tensor_from(influencer.xy_position)
+            )) for influencer in influencers
         ]
 
         return effect_embeddings
 
-    def forward(self, ship: Ship, planets: List[Planet], action):
+    def type_tensor(self, of: SpaceObject):
+        return tensor_from(
+            1 if isinstance(of, Ship) else 0,
+            1 if isinstance(of, Planet) else 0,
+            (1 if isinstance(of, Beacon) else 0) if self.exp.conf.with_beacons else None,
+        )
+
+    def imagine2(self, subjects: List[SpaceObject], influencers: List[SpaceObject], action):
+        pass
+
+
+    def forward(self, subject: SpaceObject, influencers: List[SpaceObject], action):
         if self.exp.conf.imaginator_ignores_secondary:
-            planets = [planet for planet in planets if not planet.is_secondary]
+            influencers = [planet for planet in influencers if not planet.is_secondary]
 
-        effect_embeddings = self.embed(ship, planets)
-
-        if hasattr(self, 'measure_imaginator_planet_embedding_introspection') and not isinstance(action, np.ndarray):
-            for i, embedding in enumerate(effect_embeddings):
-                planet = self.exp.env.planets[i]
-
-                actual_radius = np.linalg.norm(ship.xy_position.detach().numpy() - planet.xy_position)
-                pretended_radius = actual_radius
-
-                pretended_xy_distance = planet.xy_position - ship.xy_position.detach().numpy()
-                minimal_radius = planet.mass
-
-                if pretended_radius < minimal_radius:
-                    pretended_radius = minimal_radius
-                    actual_angle, actual_radius = cartesian2polar(pretended_xy_distance[0], pretended_xy_distance[1])
-                    pretended_xy_distance = np.array(polar2cartesian(actual_angle, pretended_radius))
-
-                xy_gravitational_force = self.exp.env.gravitational_constant * planet.mass * ship.mass * pretended_xy_distance / pretended_radius ** 3
-                gravitational_force_magnitude = np.linalg.norm(xy_gravitational_force)
-
-                self.embeddings.append(embedding.detach().numpy())
-                self.metrics.append([planet.mass, actual_radius, gravitational_force_magnitude])
+        effect_embeddings = self.embed(subject, influencers)
 
         if len(effect_embeddings) == 0:
             aggregate_effect_embedding = torch.zeros(self.exp.conf.imaginator.effect_embedding_length)
@@ -129,19 +109,20 @@ class FullImaginator(torch.nn.Module):
             aggregate_effect_embedding = torch.mean(torch.stack(effect_embeddings), dim=0)
 
         imagined_velocity = self.object_module(tensor_from(
-            ship.mass if self.exp.conf.use_ship_mass else None,
-            ship.xy_velocity / self.exp.conf.imaginator.velocity_normalization_factor,
+            self.type_tensor(subject),
+            subject.mass,
+            subject.xy_velocity / self.exp.conf.imaginator.velocity_normalization_factor,
             action / self.exp.conf.imaginator.action_normalization_factor,
             aggregate_effect_embedding
         ))
 
         return imagined_velocity
 
-    def accumulate_loss(self, ship_trajectory: List[Ship], planets: List[Planet], action):
-        for i_physics_step in range(len(ship_trajectory) - 1):
-            previous_state = ship_trajectory[i_physics_step]
-            imagined_velocity = self(previous_state, planets, action if i_physics_step == 0 else np.zeros(2))
-            target_velocity = ship_trajectory[i_physics_step + 1].xy_velocity
+    def accumulate_loss(self, subject_trajectory: List[SpaceObject], influencers: List[SpaceObject], action):
+        for i_physics_step in range(len(subject_trajectory) - 1):
+            previous_state = subject_trajectory[i_physics_step]
+            imagined_velocity = self(previous_state, influencers, action if i_physics_step == 0 else np.zeros(2))
+            target_velocity = subject_trajectory[i_physics_step + 1].xy_velocity
 
             loss = torch.nn.functional.mse_loss(imagined_velocity.unsqueeze(0), tensor_from(target_velocity).unsqueeze(0), reduction='sum')
 
@@ -154,22 +135,13 @@ class FullImaginator(torch.nn.Module):
 
         evaluation = np.square(imagined_final_position - actual_final_position).mean()
         self.batch_evaluation.add(evaluation)
+        self.batch_dynamic_evaluation.add(evaluation)
 
-        task_cost = np.square(actual_final_position).mean()
+        if len(self.exp.env.beacons) == 0:
+            task_cost = np.square(actual_final_position).mean()
+        else:
+            task_cost = np.square(actual_final_position - self.exp.env.beacons[0].xy_position).mean()
         self.batch_task_cost.add(task_cost)
-
-        if self.exp.agent.has_curator():
-            f_planets_kept = len(planets) / len(self.exp.env.planets)
-            ponder_cost = f_planets_kept * self.exp.conf.manager.ponder_price
-            self.exp.agent.manager.episode_costs.append(ponder_cost + evaluation)
-            self.exp.agent.manager.batch_ponder_cost.add(ponder_cost)
-            self.exp.agent.manager.batch_task_cost.add(ponder_cost + evaluation)
-
-            if hasattr(self.exp.agent, 'measure_performance'):
-                self.exp.agent.manager_mean_task_cost_measurements.append(ponder_cost + evaluation)
-
-            self.exp.agent.batch_n_planets_in_each_imagination.add(len(planets))
-            self.exp.agent.batch_f_planets_in_each_imagination.add(f_planets_kept)
 
         if hasattr(self.exp.agent, 'measure_performance'):
             self.exp.agent.imaginator_mean_final_position_error_measurements.append(evaluation)
@@ -201,6 +173,12 @@ class FullImaginator(torch.nn.Module):
 
         self.exp.log("imaginator_mean_final_position_error", self.batch_evaluation.average())
         self.batch_evaluation = Accumulator()
+
+        self.exp.log("imaginator_mean_dynamic_final_position_error", self.batch_dynamic_evaluation.average())
+        self.batch_dynamic_evaluation = Accumulator()
+
+        self.exp.log("imaginator_mean_static_final_position_error", self.batch_static_evaluation.average())
+        self.batch_static_evaluation = Accumulator()
 
         self.exp.log("controller_and_memory_mean_task_cost", self.batch_task_cost.average())
         self.batch_task_cost = Accumulator()

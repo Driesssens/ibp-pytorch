@@ -8,6 +8,7 @@ from full_imaginator import FullImaginator
 from manager import Manager, PPOManager
 from binary_manager import BinaryManager, BinomialManager
 from curator import Curator
+from spaceship_environment import GravityCap
 
 
 class ImaginationStrategies(Enum):
@@ -176,7 +177,14 @@ class ImaginatorConfiguration(Configuration):
                  action_normalization_factor=0.5,
                  learning_rate=0.001,
                  max_gradient_norm=10,
-                 batch_loss_sum=False
+                 batch_loss_sum=False,
+                 han_n_top_objects=None,
+                 adahan_threshold=None,
+                 simplehan_threshold=None,
+                 han_per_imagination=False,
+                 c_l2_loss=0,
+                 l2_on_filtered=False,
+                 l2_scaled_by_filtered=False
                  ):
         self.relation_module_layer_sizes = relation_module_layer_sizes
         self.effect_embedding_length = effect_embedding_length
@@ -186,6 +194,15 @@ class ImaginatorConfiguration(Configuration):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
         self.batch_loss_sum = batch_loss_sum
+
+        self.han_n_top_objects = han_n_top_objects
+        self.adahan_threshold = adahan_threshold
+        self.han_per_imagination = han_per_imagination
+        self.simplehan_threshold = simplehan_threshold
+
+        self.c_l2_loss = c_l2_loss
+        self.l2_on_filtered = l2_on_filtered
+        self.l2_scaled_by_filtered = l2_scaled_by_filtered
 
 
 class FullImaginatorConfiguration(Configuration):
@@ -199,7 +216,12 @@ class FullImaginatorConfiguration(Configuration):
                  action_normalization_factor=0.5,
                  learning_rate=0.001,
                  max_gradient_norm=10,
-                 batch_loss_sum=False
+                 batch_loss_sum=False,
+                 han_n_top_objects=None,
+                 adahan_threshold=None,
+                 simplehan_threshold=None,
+                 han_per_imagination=False,
+                 c_l2_loss=0
                  ):
         self.relation_module_layer_sizes = relation_module_layer_sizes
         self.effect_embedding_length = effect_embedding_length
@@ -209,6 +231,13 @@ class FullImaginatorConfiguration(Configuration):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
         self.batch_loss_sum = batch_loss_sum
+
+        self.han_n_top_objects = han_n_top_objects
+        self.adahan_threshold = adahan_threshold
+        self.han_per_imagination = han_per_imagination
+        self.simplehan_threshold = simplehan_threshold
+
+        self.c_l2_loss = c_l2_loss
 
 
 class ManagerConfiguration(Configuration):
@@ -408,6 +437,9 @@ class GeneralConfiguration:
         if not isinstance(instance.imagination_strategy, ImaginationStrategies):
             instance.imagination_strategy = ImaginationStrategies(instance.imagination_strategy)
 
+        if not isinstance(instance.gravity_cap, GravityCap):
+            instance.gravity_cap = GravityCap(instance.gravity_cap)
+
         if instance.imaginator is not None:
             instance.imaginator = eval(instance.imaginator)(**imaginator_settings)
 
@@ -441,6 +473,7 @@ class GeneralConfiguration:
                  planets_random_radial_distance_interval=(0.4, 1.0),
                  n_secondary_planets=0,
                  secondary_planets_random_mass_interval=(0.00, 0.00),
+                 secondary_planets_random_radial_distance_interval=(1.8, 2.0),
                  history_embedding_length=None,
                  _history_embedding_length=100,
                  max_imaginations_per_action=3,
@@ -454,7 +487,8 @@ class GeneralConfiguration:
                  imaginator_ignores_secondary=False,
                  with_beacons=False,
                  beacon_probability=1,
-                 beacon_radial_distance_interval=(0.0, 1.5)
+                 beacon_radial_distance_interval=(0.0, 1.5),
+                 gravity_cap=GravityCap.Low
                  ):
         self.n_planets = n_planets
         self.n_actions_per_episode = n_actions_per_episode
@@ -466,6 +500,7 @@ class GeneralConfiguration:
         self.planets_random_radial_distance_interval = planets_random_radial_distance_interval
         self.n_secondary_planets = n_secondary_planets
         self.secondary_planets_random_mass_interval = secondary_planets_random_mass_interval
+        self.secondary_planets_random_radial_distance_interval = secondary_planets_random_radial_distance_interval
         self._history_embedding_length = _history_embedding_length if history_embedding_length is None else history_embedding_length
         self.max_imaginations_per_action = max_imaginations_per_action
         self.imagination_strategy = imagination_strategy
@@ -479,6 +514,7 @@ class GeneralConfiguration:
         self.with_beacons = with_beacons
         self.beacon_probability = beacon_probability
         self.beacon_radial_distance_interval = beacon_radial_distance_interval
+        self.gravity_cap = gravity_cap
 
     @property
     def routes_of_strategy(self):

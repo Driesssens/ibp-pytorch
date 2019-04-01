@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from controller_and_memory import ControllerAndMemory
 from imaginator import Imaginator
+from full_imaginator import FullImaginator
 from manager import Manager, PPOManager
 from spaceship_environment import polar2cartesian
 from configuration import route_as_vector, Routes
@@ -241,7 +242,33 @@ class ImaginationBasedPlanner:
                 detached_action
             )
 
-        self.imaginator.accumulate_loss(actual_trajectory, curated_planets if self.has_curator() else self.exp.env.planets, detached_action)
+        if isinstance(self.imaginator, FullImaginator):
+            pass
+            # subjects = [old_ship_state] + self.exp.env.planets + self.exp.env.beacons
+            # influencerss = [[x for x in subjects if x is not subject] for subject in subjects]
+            #
+            # embeddingss = []
+            # normss = []
+            #
+            # for subject, influencers in zip(subjects, influencerss):
+            #
+            # embeddingss = [[x.detach().norm() for x in self.imaginator.embed(subject, influencers)] for subject, influencers in zip(subjects, influencerss)]
+            #
+            # if self.exp.conf.imaginator.simplehan_threshold is not None:
+            #     zeros_and_ones = torch.FloatTensor(norms) >= self.exp.conf.imaginator.simplehan_threshold * torch.FloatTensor(norms).mean()
+            #     filter_indices = [x.item() == 1 for x in zeros_and_ones]
+            #
+            # for subject in self.exp.env.planets:
+            #     influencers = [x for x in self.exp.env.planets if x is not subject] + [old_ship_state]
+            #     self.imaginator.accumulate_loss([subject] * len(actual_trajectory), influencers, detached_action)
+            #
+            #     if self.exp.conf.max_imaginations_per_action == 0:
+            #         estimated_final_position = self.imaginator.imagine(subject, influencers, detached_action)[0][-1].xy_position
+            #         final_prediction_error = np.square(estimated_final_position - subject.xy_position).mean()
+            #         self.imaginator.batch_evaluation.add(final_prediction_error)
+            #         self.imaginator.batch_static_evaluation.add(final_prediction_error)
+        else:
+            self.imaginator.accumulate_loss(actual_trajectory, curated_planets if self.has_curator() else self.exp.env.planets, detached_action)
 
         if self.controller_and_memory is not None:
             estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(
