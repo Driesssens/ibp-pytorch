@@ -83,12 +83,7 @@ class Imaginator(torch.nn.Module):
         if not differentiable_trajectory:
             imagined_ship_trajectory[-1].detach_and_to_numpy()
 
-        if self.exp.conf.fuel_price == 0:
-            imagined_fuel_cost = tensor_from(0)
-        else:
-            imagined_fuel_cost = torch.clamp((torch.norm(tensor_from(action)) - self.exp.conf.fuel_cost_threshold) * self.exp.conf.fuel_price, min=0)
-
-        return imagined_ship_trajectory, imagined_task_cost, imagined_fuel_cost
+        return imagined_ship_trajectory, imagined_task_cost
 
     def filter(self, ship: Ship, planets: List[Planet], threshold):
         with torch.no_grad():
@@ -211,7 +206,7 @@ class Imaginator(torch.nn.Module):
             # self.batch_l2_loss.add(torch.stack(self.embed(ship_trajectory[0], planets)).norm(dim=1).mean() * self.exp.conf.imaginator.c_l2_loss)
 
     def evaluate(self, old_ship_state: Ship, planets: List[Planet], action, actual_new_ship_state: Ship):
-        estimated_trajectory, critic_evaluation, estimated_fuel_cost = self.imagine(old_ship_state, planets, action)
+        estimated_trajectory, critic_evaluation = self.imagine(old_ship_state, planets, action)
         imagined_final_position = estimated_trajectory[-1].xy_position
         actual_final_position = actual_new_ship_state.xy_position
 
@@ -225,24 +220,11 @@ class Imaginator(torch.nn.Module):
 
         self.batch_task_cost.add(task_cost)
 
-        if self.exp.agent.has_curator():
-            f_planets_kept = len(planets) / len(self.exp.env.planets)
-            ponder_cost = f_planets_kept * self.exp.conf.manager.ponder_price
-            self.exp.agent.manager.episode_costs.append(ponder_cost + evaluation)
-            self.exp.agent.manager.batch_ponder_cost.add(ponder_cost)
-            self.exp.agent.manager.batch_task_cost.add(ponder_cost + evaluation)
-
-            if hasattr(self.exp.agent, 'measure_performance'):
-                self.exp.agent.manager_mean_task_cost_measurements.append(ponder_cost + evaluation)
-
-            self.exp.agent.batch_n_planets_in_each_imagination.add(len(planets))
-            self.exp.agent.batch_f_planets_in_each_imagination.add(f_planets_kept)
-
         if hasattr(self.exp.agent, 'measure_performance'):
             self.exp.agent.imaginator_mean_final_position_error_measurements.append(evaluation)
             self.exp.agent.controller_and_memory_mean_task_cost_measurements.append(task_cost)
 
-        return estimated_trajectory, critic_evaluation, estimated_fuel_cost
+        return estimated_trajectory, critic_evaluation
 
     def finish_batch(self):
         mean_loss = self.batch_loss.average()

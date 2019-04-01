@@ -27,202 +27,82 @@ class ImaginationBasedPlanner:
         self.controller_and_memory = None  # type: ControllerAndMemory
         self.manager = None  # type: Manager
 
-        self.batch_n_imaginations_per_action = Accumulator()
         self.batch_start_time = time.perf_counter()
         self.batch_action_magnitude = Accumulator()
 
         self.batch_n_planets_in_each_imagination = Accumulator()
         self.batch_f_planets_in_each_imagination = Accumulator()
-        self.batch_n_planets_in_final_imagination = Accumulator()
-        self.batch_f_planets_in_final_imagination = Accumulator()
 
         self.batch_ship_p = Accumulator()
 
     def act(self):
-        i_imagination = 0
+        filter_indices = [True] * self.exp.env.n_obj()
 
-        last_imagined_ship_state = self.exp.env.agent_ship
-        last_threshold = None
-        filter_indices = None
-        filter_indices_this_action = None
+        if self.controller_and_memory is not None:
+            object_embeddings = None
 
-        for _ in range(self.exp.conf.max_imaginations_per_action):
+            if self.uses_filters() and self.exp.conf.controller.filter_before_imagining:
+                filter_indices, object_embeddings = self.filter(self.exp.env.objs())
 
-            if self.has_normal_manager():
-                i_route, threshold = self.manager.act()
-                route = self.exp.conf.routes_of_strategy[i_route] if i_route is not None else Routes.IMAGINE_FROM_REAL_STATE
-
-                if route is Routes.ACT:
-                    self.manager.episode_costs.append(0)
-                else:
-                    self.manager.episode_costs.append(self.exp.conf.manager.ponder_price)
-            else:
-                route = Routes.IMAGINE_FROM_REAL_STATE
-
-            if route is Routes.ACT:
-                break
-            elif route is Routes.IMAGINE_FROM_REAL_STATE:
-                last_imagined_ship_state = self.exp.env.agent_ship
-            elif route is Routes.IMAGINE_FROM_LAST_IMAGINATION:
-                pass
-
-            if self.controller_and_memory is not None:
-                imagined_action = self.controller_and_memory.controller(last_imagined_ship_state)
-            else:
-                imagined_action = self.dummy_action()
-
-            filtered_planets = self.exp.env.planets
-
-            if self.has_normal_manager() and threshold is not None:
-                filtered_planets = self.imaginator.filter(last_imagined_ship_state, filtered_planets, threshold)
-                self.manager.batch_threshold.add(threshold)
-                last_threshold = threshold
-
-            imagined_trajectory, imagined_loss, imagined_fuel_cost = self.imaginator.imagine(
-                last_imagined_ship_state,
-                filtered_planets,
-                imagined_action,
-                differentiable_trajectory=True
-            )
-
-            self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
-
-            if self.has_ppo_manager() and (self.exp.conf.manager.per_imagination or i_imagination == 0):
-                objects = [imagined_trajectory[-1]] + self.exp.env.planets + self.exp.env.beacons
-
-                if filter_indices is None:
-                    filter_indices = [True] * len(objects)
-
-                for i in range(len(filter_indices)):
-                    if not filter_indices[i]:
-                        objects[i] = None
-
-                object_embeddings = [x.detach() if x is not None else x for x in self.controller_and_memory.memory.get_object_embeddings(objects)]
-
-                if isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager):
-                    filter_indices, filter_indices_this_action = self.manager.act(object_embeddings, objects)
-                else:
-                    threshold = self.manager.act(object_embeddings, objects)
-
-                    self.manager.batch_threshold.add(threshold)
-                    last_threshold = threshold
-                    filter_indices = [filter_value and threshold < embedding.norm().item() for filter_value, embedding in zip(filter_indices, object_embeddings)]
-
-            if self.is_self_filtering() and (self.exp.conf.controller.han_per_imagination or i_imagination == 0):
-                objects = [imagined_trajectory[-1]] + self.exp.env.planets + self.exp.env.beacons
-                norms = [x.detach().norm() for x in self.controller_and_memory.memory.get_object_embeddings(objects)]
-
-                if self.exp.conf.controller.han_n_top_objects is not None:
-                    filter_indices = [False] * len(objects)
-
-                    top_indices = sorted(range(len(norms)), key=lambda i: norms[i])[-self.exp.conf.controller.han_n_top_objects:]
-
-                    for ind in top_indices:
-                        filter_indices[ind] = True
-                elif self.exp.conf.controller.adahan_threshold is not None:
-                    zeros_and_ones = torch.nn.functional.softmax(torch.FloatTensor(norms)) >= self.exp.conf.controller.adahan_threshold / len(norms)
-                    filter_indices = [x.item() == 1 for x in zeros_and_ones]
-                elif self.exp.conf.controller.simplehan_threshold is not None:
-                    zeros_and_ones = torch.FloatTensor(norms) >= self.exp.conf.controller.simplehan_threshold * torch.FloatTensor(norms).mean()
-                    filter_indices = [x.item() == 1 for x in zeros_and_ones]
-
-                if len(self.exp.env.beacons) == 0:
-                    if filter_indices[0]:
-                        self.batch_ship_p.add(1)
-                    else:
-                        self.batch_ship_p.add(0)
-                else:
-                    if filter_indices[0] and filter_indices[-1]:
-                        self.batch_ship_p.add(1)
-                    elif filter_indices[0] or filter_indices[-1]:
-                        self.batch_ship_p.add(0.5)
-                    else:
-                        self.batch_ship_p.add(0)
-
-                self.batch_n_planets_in_each_imagination.add(filter_indices.count(True))
-                self.batch_f_planets_in_each_imagination.add(filter_indices.count(True) / len(filter_indices))
-
-            if self.controller_and_memory is not None:
+            if not self.exp.conf.controller.blind_first_action:
                 self.history_embedding = self.controller_and_memory.memory(
-                    route=route_as_vector(self.exp.conf.imagination_strategy, route),
-                    actual_state=self.exp.env.agent_ship,
-                    last_imagined_state=last_imagined_ship_state,
-                    action=imagined_action,
-                    new_state=imagined_trajectory[-1],
-                    reward=-(imagined_loss.unsqueeze(0) + imagined_fuel_cost),
-                    i_action=self.exp.env.i_action,
-                    i_imagination=i_imagination,
-                    filter_indices=filter_indices
+                    action=np.zeros(2),
+                    state=self.exp.env.agent_ship,
+                    i_imagination=0,
+                    filter_indices=filter_indices,
+                    object_embeddings=object_embeddings
                 )
 
-            if self.has_normal_manager() and threshold is not None:
-                n_kept_planets = len(filtered_planets)
-                fraction_kept_planets = n_kept_planets / len(self.exp.env.planets)
-                self.manager.episode_costs[-1] *= (n_kept_planets + 1) / (len(self.exp.env.planets) + 1)
+        for i_imagination in range(self.exp.conf.max_imaginations_per_action):
+            proposed_action = self.controller_and_memory.controller(self.exp.env.agent_ship) if self.controller_and_memory is not None else self.dummy_action()
 
-                self.batch_n_planets_in_each_imagination.add(n_kept_planets)
-                self.batch_f_planets_in_each_imagination.add(fraction_kept_planets)
+            if filter_indices[0]:
+                imagined_trajectory, _ = self.imaginator.imagine(
+                    self.exp.env.agent_ship,
+                    self.exp.env.planets,
+                    proposed_action,
+                    differentiable_trajectory=True
+                )
 
-            if self.has_ppo_manager() and (self.exp.conf.manager.per_imagination or i_imagination == 0):
-                n_kept_objects = len(list(filter(lambda x: x, filter_indices)))  # count amount of True
-                fraction_kept_objects = n_kept_objects / len(filter_indices)
+                self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
+                imagined_state = imagined_trajectory[-1]
+            else:
+                imagined_state = None
 
-                if isinstance(self.manager, BinaryManager):
-                    for decision in filter_indices_this_action:
-                        self.manager.episode_costs.append(self.exp.conf.manager.ponder_price / len(filter_indices) if decision else 0)
+            if self.controller_and_memory is not None:
+                object_embeddings = None
 
-                        if not self.exp.conf.manager.per_imagination:
-                            self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
+                if i_imagination == 0 and self.uses_filters() and not self.exp.conf.controller.filter_before_imagining:
+                    objects = [imagined_state] + self.exp.env.planets + self.exp.env.beacons
+                    filter_indices, object_embeddings = self.filter(objects)
 
-                elif isinstance(self.manager, BinomialManager):
-                    if len(filter_indices_this_action) > 0:
-                        self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * fraction_kept_objects)
-
-                        if not self.exp.conf.manager.per_imagination:
-                            self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
-                else:
-                    self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * fraction_kept_objects)
-
-                    if not self.exp.conf.manager.per_imagination:
-                        self.manager.episode_costs[-1] *= self.exp.conf.max_imaginations_per_action
-
-                self.batch_n_planets_in_each_imagination.add(n_kept_objects)
-                self.batch_f_planets_in_each_imagination.add(fraction_kept_objects)
-
-            last_imagined_ship_state = imagined_trajectory[-1]
-
-            i_imagination += 1
+                self.history_embedding = self.controller_and_memory.memory(
+                    action=proposed_action,
+                    state=imagined_state,
+                    i_imagination=i_imagination,
+                    filter_indices=filter_indices,
+                    object_embeddings=object_embeddings
+                )
 
         if self.controller_and_memory is not None:
             selected_action = self.controller_and_memory.controller(self.exp.env.agent_ship)
             detached_action = selected_action.detach().numpy()
         else:
-            detached_action = self.dummy_action()
+            selected_action = self.dummy_action()
+            detached_action = selected_action
 
         if hasattr(self, 'measure_analyze_actions'):
             self.actual_actions.append(np.linalg.norm(detached_action))
 
         old_ship_state = deepcopy(self.exp.env.agent_ship)
-        actual_trajectory, actual_fuel_cost, actual_task_cost = self.perform_action(detached_action)
+        actual_trajectory, actual_task_cost = self.perform_action(detached_action)
         new_ship_state = actual_trajectory[-1]
 
-        if (self.controller_and_memory is not None) and (not self.exp.env.i_action == self.exp.env.n_actions_per_episode):
-            self.history_embedding = self.controller_and_memory.memory(
-                route=route_as_vector(self.exp.conf.imagination_strategy, Routes.ACT),
-                actual_state=old_ship_state,
-                last_imagined_state=old_ship_state,
-                action=selected_action,
-                new_state=new_ship_state,
-                reward=-(actual_task_cost + actual_fuel_cost),
-                i_action=self.exp.env.i_action - 1,
-                i_imagination=i_imagination,
-            )
-
-        if self.manager is not None and not self.has_curator() and not self.manager_delayed():
+        if self.has_ppo_manager():
             internal_cost = sum(self.manager.episode_costs)
             self.manager.batch_ponder_cost.add(internal_cost)
 
-            external_cost = actual_task_cost + actual_fuel_cost
+            external_cost = actual_task_cost
             self.manager.episode_costs[-1] += external_cost
 
             task_cost = internal_cost + external_cost
@@ -231,19 +111,14 @@ class ImaginationBasedPlanner:
             if hasattr(self, 'measure_performance'):
                 self.manager_mean_task_cost_measurements.append(task_cost)
 
-            if last_threshold is not None:
-                self.manager.batch_final_threshold.add(last_threshold)
-
-        if self.has_curator():
-            curated_planets = self.manager.act(
-                [emb.detach() for emb in self.imaginator.embed(old_ship_state, self.exp.env.planets)],
-                self.exp.env.planets,
-                old_ship_state,
-                detached_action
-            )
-
         if isinstance(self.imaginator, FullImaginator):
-            pass
+            static_objects = self.exp.env.planets + self.exp.env.beacons
+
+            self.imaginator.accumulate_loss(actual_trajectory, static_objects, detached_action)
+
+            for static_subject in static_objects:
+                self.imaginator.accumulate_loss([static_subject] * len(actual_trajectory), [p for p in static_objects if p is not static_subject] + [old_ship_state], detached_action)
+
             # subjects = [old_ship_state] + self.exp.env.planets + self.exp.env.beacons
             # influencerss = [[x for x in subjects if x is not subject] for subject in subjects]
             #
@@ -268,50 +143,84 @@ class ImaginationBasedPlanner:
             #         self.imaginator.batch_evaluation.add(final_prediction_error)
             #         self.imaginator.batch_static_evaluation.add(final_prediction_error)
         else:
-            self.imaginator.accumulate_loss(actual_trajectory, curated_planets if self.has_curator() else self.exp.env.planets, detached_action)
+            if filter_indices[0]:
+                self.imaginator.accumulate_loss(actual_trajectory, self.exp.env.planets, detached_action)
+
+        estimated_trajectory, critic_evaluation = self.imaginator.evaluate(
+            old_ship_state,
+            self.exp.env.planets,
+            selected_action if self.controller_and_memory is not None else detached_action,
+            new_ship_state
+        )
 
         if self.controller_and_memory is not None:
-            estimated_trajectory, critic_evaluation, fuel_cost = self.imaginator.evaluate(
-                old_ship_state,
-                curated_planets if self.has_curator() else self.exp.env.planets,
-                selected_action,
-                new_ship_state
-            )
-
-            self.controller_and_memory.accumulate_loss(critic_evaluation, fuel_cost)
-        else:
-            estimated_trajectory, _, _ = self.imaginator.evaluate(old_ship_state, curated_planets if self.has_curator() else self.exp.env.planets, detached_action, new_ship_state)
+            self.controller_and_memory.accumulate_loss(critic_evaluation)
 
         self.exp.env.add_estimated_ship_trajectory(estimated_trajectory)
-        self.batch_n_imaginations_per_action.add(i_imagination)
+
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
+        self.batch_n_planets_in_each_imagination.add(filter_indices.count(True))
+        self.batch_f_planets_in_each_imagination.add(filter_indices.count(True) / self.exp.env.n_obj())
 
-        if self.manager is not None and not self.has_curator():
-            self.batch_n_planets_in_final_imagination.add(len(filtered_planets))
-            self.batch_f_planets_in_final_imagination.add(len(filtered_planets) / len(self.exp.env.planets))
+    def filter(self, objects):
+        object_embeddings = self.controller_and_memory.memory.get_object_embeddings(objects)
+        detached_object_embeddings = [embedding.detach() for embedding in object_embeddings]
 
-    def perform_action(self, action, compute_cost_independently=True):
-        resultant_fuel_cost = None
-        resultant_task_loss = None
+        if self.has_ppo_manager():
+            if isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager):
+                filter_indices, _ = self.manager.act(detached_object_embeddings, objects)
+            else:
+                threshold = self.manager.act(object_embeddings, objects)
+                self.manager.batch_threshold.add(threshold)
+                filter_indices = [threshold < embedding.norm().item() for embedding in detached_object_embeddings]
+
+            f_kept_objects = filter_indices.count(True) / len(filter_indices)
+            self.manager.episode_costs.append(self.exp.conf.manager.ponder_price * f_kept_objects * self.exp.conf.max_imaginations_per_action)
+
+        if self.is_self_filtering():
+            norms = [embedding.norm() for embedding in detached_object_embeddings]
+
+            if self.exp.conf.controller.han_n_top_objects is not None:
+                filter_indices = [False] * len(objects)
+                top_indices = sorted(range(len(norms)), key=lambda i: norms[i])[-self.exp.conf.controller.han_n_top_objects:]
+                for ind in top_indices:
+                    filter_indices[ind] = True
+
+            elif self.exp.conf.controller.simplehan_threshold is not None:
+                norms_tensor = torch.FloatTensor(norms)
+                zeros_and_ones = norms_tensor >= self.exp.conf.controller.simplehan_threshold * norms_tensor.mean()
+                filter_indices = [x.item() == 1 for x in zeros_and_ones]
+
+            if len(self.exp.env.beacons) == 0:
+                if filter_indices[0]:
+                    self.batch_ship_p.add(1)
+                else:
+                    self.batch_ship_p.add(0)
+            else:
+                if filter_indices[0] and filter_indices[-1]:
+                    self.batch_ship_p.add(1)
+                elif filter_indices[0] or filter_indices[-1]:
+                    self.batch_ship_p.add(0.5)
+                else:
+                    self.batch_ship_p.add(0)
+
+        return filter_indices, object_embeddings
+
+    def perform_action(self, action):
         resultant_trajectory = [deepcopy(self.exp.env.agent_ship)]
 
         for i_physics_step in range(self.exp.env.n_steps_per_action):
-            _, reward, done, _ = self.exp.env.step(action if i_physics_step == 0 else np.zeros(2))
-
+            self.exp.env.step(action if i_physics_step == 0 else np.zeros(2))
             resultant_trajectory.append(deepcopy(self.exp.env.agent_ship))
 
-            if i_physics_step == 0:
-                resultant_fuel_cost = -reward
-            elif done:
-                resultant_task_loss = -reward
+        actual_final_position = resultant_trajectory[-1].xy_position
 
-        if compute_cost_independently:
-            computed_task_cost = np.square(resultant_trajectory[-1].xy_position).mean()
-            computed_fuel_cost = max(0, (np.linalg.norm(action) - self.exp.conf.fuel_cost_threshold) * self.exp.conf.fuel_price)
-
-            return resultant_trajectory, computed_task_cost, computed_fuel_cost
+        if len(self.exp.env.beacons) == 0:
+            task_cost = np.square(actual_final_position).mean()
         else:
-            return resultant_trajectory, resultant_fuel_cost, resultant_task_loss
+            task_cost = np.square(actual_final_position - self.exp.env.beacons[0].xy_position).mean()
+
+        return resultant_trajectory, task_cost
 
     def finish_episode(self):
         if self.manager is not None:
@@ -327,6 +236,9 @@ class ImaginationBasedPlanner:
 
         self.i_episode += 1
 
+    def uses_filters(self):
+        return self.has_ppo_manager() or self.is_self_filtering()
+
     def is_self_filtering(self):
         return self.controller_and_memory is not None and (
                 (self.exp.conf.controller.han_n_top_objects is not None) or
@@ -334,14 +246,8 @@ class ImaginationBasedPlanner:
                 (self.exp.conf.controller.simplehan_threshold is not None)
         )
 
-    def has_curator(self):
-        return self.manager is not None and isinstance(self.manager, Curator)
-
     def has_normal_manager(self):
         return self.manager is not None and isinstance(self.manager, Manager)
-
-    def manager_delayed(self):
-        return hasattr(self.exp.conf.manager, 'n_steps_delay') and self.i_episode < self.exp.conf.manager.n_steps_delay
 
     def has_ppo_manager(self):
         has_it = self.manager is not None and (isinstance(self.manager, PPOManager) or isinstance(self.manager, BinaryManager) or isinstance(self.manager, BinomialManager))
@@ -356,29 +262,17 @@ class ImaginationBasedPlanner:
         if self.manager is not None:
             self.manager.finish_batch()
 
-        self.exp.log("mean_n_imaginations_per_action", self.batch_n_imaginations_per_action.average())
-        self.batch_n_imaginations_per_action = Accumulator()
-
         self.exp.log("mean_real_action_magnitude", self.batch_action_magnitude.average())
         self.batch_action_magnitude = Accumulator()
 
         if self.is_self_filtering():
-            self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
-            self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
             self.exp.log("manager_mean_ship_p", self.batch_ship_p.average())
+            self.batch_ship_p = Accumulator()
 
-        if self.manager is not None:
-            self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
-            self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
-            if not self.has_curator():
-                self.exp.log("mean_n_planets_in_final_imagination", self.batch_n_planets_in_final_imagination.average())
-                self.exp.log("mean_f_planets_in_final_imagination", self.batch_f_planets_in_final_imagination.average())
-
+        self.exp.log("mean_n_planets_in_each_imagination", self.batch_n_planets_in_each_imagination.average())
+        self.exp.log("mean_f_planets_in_each_imagination", self.batch_f_planets_in_each_imagination.average())
         self.batch_n_planets_in_each_imagination = Accumulator()
         self.batch_f_planets_in_each_imagination = Accumulator()
-        self.batch_n_planets_in_final_imagination = Accumulator()
-        self.batch_f_planets_in_final_imagination = Accumulator()
-        self.batch_ship_p = Accumulator()
 
         self.exp.log("get_num_threads", torch.get_num_threads())
 

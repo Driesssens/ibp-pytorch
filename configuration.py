@@ -132,7 +132,9 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  han_n_top_objects=None,
                  adahan_threshold=None,
                  simplehan_threshold=None,
-                 han_per_imagination=False
+                 han_per_imagination=False,
+                 blind_first_action=True,
+                 filter_before_imagining=False
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -164,6 +166,9 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.adahan_threshold = adahan_threshold
         self.han_per_imagination = han_per_imagination
         self.simplehan_threshold = simplehan_threshold
+
+        self.blind_first_action = blind_first_action
+        self.filter_before_imagining = filter_before_imagining
 
 
 class ImaginatorConfiguration(Configuration):

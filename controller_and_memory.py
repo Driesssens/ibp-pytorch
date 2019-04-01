@@ -17,18 +17,12 @@ class AbstractControllerAndMemory(ABC):
         self.exp = experiment
 
         self.batch_total_loss = Accumulator()
-        self.batch_task_loss = Accumulator()
-        self.batch_fuel_loss = Accumulator()
 
-    def accumulate_loss(self, critic_evaluation, fuel_cost):
-        if self.exp.conf.controller.immediate_mode:
-            total_loss = critic_evaluation + fuel_cost
-            if self.exp.train_model:
-                total_loss.backward()
+    def accumulate_loss(self, critic_evaluation):
+        if self.exp.conf.controller.immediate_mode and self.exp.train_model:
+            critic_evaluation.backward()
 
-        self.batch_fuel_loss.add(fuel_cost)
-        self.batch_task_loss.add(critic_evaluation)
-        self.batch_total_loss.add(critic_evaluation + fuel_cost)
+        self.batch_total_loss.add(critic_evaluation)
 
     def finish_batch(self):
         mean_loss = self.batch_total_loss.average()
@@ -49,12 +43,6 @@ class AbstractControllerAndMemory(ABC):
 
         self.exp.log("controller_and_memory_mean_loss", mean_loss.item())
         self.batch_total_loss = Accumulator()
-
-        self.exp.log("controller_and_memory_mean_task_loss", self.batch_task_loss.average().item())
-        self.batch_task_loss = Accumulator()
-
-        self.exp.log("controller_and_memory_mean_fuel_loss", self.batch_fuel_loss.average().item())
-        self.batch_fuel_loss = Accumulator()
 
     def store_model(self):
         torch.save(self.controller.state_dict(), self.exp.file_path('controller_state_dict'))
@@ -332,55 +320,54 @@ class SetMemory(torch.nn.Module):
         self.cell_state = torch.zeros(1, self.exp.conf.history_embedding_length)
 
     def get_object_embeddings(self, objects):
-        objects = copy(objects)
+        object_embeddings = []
 
-        for i in range(len(objects)):
-            if objects[i] is not None:
-                tensor = tensor_from(
-                    1 if isinstance(objects[i], Ship) else 0,
-                    1 if isinstance(objects[i], Planet) else 0,
-                    (1 if isinstance(objects[i], Beacon) else 0) if self.exp.conf.with_beacons else None,
-                    objects[i].mass,
-                    objects[i].encode_state(False)
-                )
+        for obj in objects:
+            tensor = tensor_from(
+                1 if isinstance(obj, Ship) else 0,
+                1 if isinstance(obj, Planet) else 0,
+                (1 if isinstance(obj, Beacon) else 0) if self.exp.conf.with_beacons else None,
+                obj.mass,
+                obj.encode_state(False)
+            )
 
-                embedding = self.object_function(tensor)
-                objects[i] = embedding
+            object_embeddings.append(self.object_function(tensor))
 
-        return objects
+        return object_embeddings
 
-    def forward(self, route, actual_state, last_imagined_state, action, new_state, reward, i_action, i_imagination, filter_indices=None):
-        objects = [new_state] + self.exp.env.planets + self.exp.env.beacons
-
-        if filter_indices is not None:
-            objects = [objekt for (objekt, filter_value) in zip(objects, filter_indices) if filter_value]
+    def forward(self, action, state, i_imagination, filter_indices, object_embeddings):
+        objects = [state] + self.exp.env.planets + self.exp.env.beacons
+        filtered_objects = [objekt for (objekt, filter_value) in zip(objects, filter_indices) if filter_value]
 
         if hasattr(self, 'measure_performance_under_more_and_unobserved_planets'):
             if self.measure_performance_under_more_and_unobserved_planets == 'only_ship_observed':
                 assert filter_indices is None
-                objects = [new_state] + self.exp.env.beacons
+                objects = [state] + self.exp.env.beacons
             elif self.measure_performance_under_more_and_unobserved_planets == 'extra_planets_unobserved':
                 assert filter_indices is None
-                objects = [new_state] + self.exp.env.planets[:-1] + self.exp.env.beacons
+                objects = [state] + self.exp.env.planets[:-1] + self.exp.env.beacons
 
-        object_embeddings = self.get_object_embeddings(objects)
+        if object_embeddings is None:
+            filtered_object_embeddings = self.get_object_embeddings(filtered_objects)
+        else:
+            filtered_object_embeddings = [embedding for (embedding, filter_value) in zip(object_embeddings, filter_indices) if filter_value]
 
         if hasattr(self, 'measure_setmemory_object_embedding_introspection'):
-            for i, embedding in enumerate(object_embeddings):
-                obj = objects[i]
+            for i, embedding in enumerate(filtered_object_embeddings):
+                obj = filtered_objects[i]
                 radius = np.linalg.norm(obj.xy_position)
                 is_planet = isinstance(obj, Planet)
 
                 self.embeddings.append(embedding.detach().numpy())
                 self.metrics.append([int(is_planet), obj.mass, radius, obj.x, obj.y])
 
-        if len(object_embeddings) == 0:
+        if len(filtered_object_embeddings) == 0:
             aggregate_embedding = torch.zeros(self.exp.conf.controller.object_embedding_length)
         else:
-            aggregate_embedding = torch.mean(torch.stack(object_embeddings), dim=0)
+            aggregate_embedding = torch.mean(torch.stack(filtered_object_embeddings), dim=0)
 
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
-            aggregate_embedding = self.aggregate_function(torch.mean(torch.stack(object_embeddings), dim=0))
+            aggregate_embedding = self.aggregate_function(aggregate_embedding)
 
         lstm_input = tensor_from(
             action if self.exp.conf.controller.use_action else None,
