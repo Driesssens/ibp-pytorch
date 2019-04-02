@@ -38,7 +38,7 @@ class FullImaginator(torch.nn.Module):
 
         self.optimizer = torch.optim.Adam(self.parameters(), self.exp.conf.imaginator.learning_rate)
 
-    def imagine(self, subject: SpaceObject, influencers: List[SpaceObject], action, differentiable_trajectory=False):
+    def imagine_single(self, subject: SpaceObject, influencers: List[SpaceObject], action, estimated=None):
         imagined_ship_trajectory = [deepcopy(subject)]
         imagined_ship_trajectory[-1].wrap_in_tensors()
 
@@ -57,21 +57,39 @@ class FullImaginator(torch.nn.Module):
             imagined_state.xy_velocity = imagined_velocity
             imagined_ship_trajectory.append(imagined_state)
 
-            if not differentiable_trajectory:
-                current_state.detach_and_to_numpy()
+        if estimated is not None:
+            if estimated:
+                self.exp.env.add_estimated_ship_trajectory(imagined_ship_trajectory)
+            else:
+                self.exp.env.add_imagined_ship_trajectory(imagined_ship_trajectory)
 
-        target_position = torch.zeros(2) if len(self.exp.env.beacons) == 0 else torch.FloatTensor(self.exp.env.beacons[0].xy_position)
-        imagined_task_cost = torch.nn.functional.mse_loss(imagined_ship_trajectory[-1].xy_position.unsqueeze(0), target_position.unsqueeze(0))
+        return imagined_ship_trajectory[-1]
 
-        if not differentiable_trajectory:
-            imagined_ship_trajectory[-1].detach_and_to_numpy()
+    def imagine(self, ship: Ship, action, filter_indices, differentiable_trajectory=False, estimated=False, record=False):
+        actual_objects = [ship] + self.exp.env.planets + self.exp.env.beacons
+        imagined_objects = []
 
-        if self.exp.conf.fuel_price == 0:
-            imagined_fuel_cost = tensor_from(0)
+        for actual_object, filter_value in zip(actual_objects, filter_indices):
+            if not filter_value:
+                imagined_objects.append(None)
+            else:
+                predicted_result = self.imagine_single(actual_object, [obj for obj in actual_objects if obj is not actual_object], action, estimated=estimated if actual_object is ship else None)
+
+                if actual_object is not ship and record:
+                    estimated_final_position = predicted_result.xy_position
+                    final_prediction_error = np.square(estimated_final_position.detach().numpy() - actual_object.xy_position).mean()
+                    self.batch_evaluation.add(final_prediction_error)
+                    self.batch_static_evaluation.add(final_prediction_error)
+
+                imagined_objects.append(predicted_result)
+
+        if filter_indices[0] and (filter_indices[-1] or len(self.exp.env.beacons) == 0):
+            target_position = torch.zeros(2) if len(self.exp.env.beacons) == 0 else imagined_objects[-1].xy_position
+            imagined_task_cost = torch.nn.functional.mse_loss(imagined_objects[0].xy_position.unsqueeze(0), target_position.unsqueeze(0))
         else:
-            imagined_fuel_cost = torch.clamp((torch.norm(tensor_from(action)) - self.exp.conf.fuel_cost_threshold) * self.exp.conf.fuel_price, min=0)
+            imagined_task_cost = None
 
-        return imagined_ship_trajectory, imagined_task_cost, imagined_fuel_cost
+        return imagined_objects, imagined_task_cost
 
     def embed(self, subject: SpaceObject, influencers: List[SpaceObject]):
         effect_embeddings = [
@@ -92,10 +110,6 @@ class FullImaginator(torch.nn.Module):
             1 if isinstance(of, Planet) else 0,
             (1 if isinstance(of, Beacon) else 0) if self.exp.conf.with_beacons else None,
         )
-
-    def imagine2(self, subjects: List[SpaceObject], influencers: List[SpaceObject], action):
-        pass
-
 
     def forward(self, subject: SpaceObject, influencers: List[SpaceObject], action):
         if self.exp.conf.imaginator_ignores_secondary:
@@ -118,7 +132,19 @@ class FullImaginator(torch.nn.Module):
 
         return imagined_velocity
 
-    def accumulate_loss(self, subject_trajectory: List[SpaceObject], influencers: List[SpaceObject], action):
+    def accumulate_loss(self, subject_trajectory: List[SpaceObject], action, filter_indices):
+        actual_objects = [subject_trajectory[0]] + self.exp.env.planets + self.exp.env.beacons
+
+        for actual_object, filter_value in zip(actual_objects, filter_indices):
+            if filter_value:
+                if actual_object is actual_objects[0]:
+                    traject = subject_trajectory
+                else:
+                    traject = [actual_object] * len(subject_trajectory)
+
+                self.accumulate_loss_single(traject, [obj for obj in actual_objects if obj is not actual_object], action)
+
+    def accumulate_loss_single(self, subject_trajectory: List[SpaceObject], influencers: List[SpaceObject], action):
         for i_physics_step in range(len(subject_trajectory) - 1):
             previous_state = subject_trajectory[i_physics_step]
             imagined_velocity = self(previous_state, influencers, action if i_physics_step == 0 else np.zeros(2))
@@ -128,12 +154,23 @@ class FullImaginator(torch.nn.Module):
 
             self.batch_loss.add(loss)
 
-    def evaluate(self, old_ship_state: Ship, planets: List[Planet], action, actual_new_ship_state: Ship):
-        estimated_trajectory, critic_evaluation, estimated_fuel_cost = self.imagine(old_ship_state, planets, action)
-        imagined_final_position = estimated_trajectory[-1].xy_position
+    def evaluate(self, old_ship_state: Ship, action, actual_new_ship_state: Ship, filter_indices):
+        #     if self.exp.conf.max_imaginations_per_action == 0:
+        #         estimated_final_position = self.imaginator.imagine(subject, influencers, detached_action)[0][-1].xy_position
+        #         final_prediction_error = np.square(estimated_final_position - subject.xy_position).mean()
+        #         self.imaginator.batch_evaluation.add(final_prediction_error)
+        #         self.imaginator.batch_static_evaluation.add(final_prediction_error)
+
+        if self.exp.conf.max_imaginations_per_action == 0:
+            filters = [True] * len(filter_indices)
+        else:
+            filters = [True] + [False] * len(self.exp.env.planets) + [True] * len(self.exp.env.beacons)
+
+        imagined_objects, critic_evaluation = self.imagine(old_ship_state, action, filters, estimated=True, record=True)
+        imagined_final_position = imagined_objects[0].xy_position
         actual_final_position = actual_new_ship_state.xy_position
 
-        evaluation = np.square(imagined_final_position - actual_final_position).mean()
+        evaluation = np.square(imagined_final_position.detach().numpy() - actual_final_position).mean()
         self.batch_evaluation.add(evaluation)
         self.batch_dynamic_evaluation.add(evaluation)
 
@@ -141,13 +178,14 @@ class FullImaginator(torch.nn.Module):
             task_cost = np.square(actual_final_position).mean()
         else:
             task_cost = np.square(actual_final_position - self.exp.env.beacons[0].xy_position).mean()
+
         self.batch_task_cost.add(task_cost)
 
         if hasattr(self.exp.agent, 'measure_performance'):
             self.exp.agent.imaginator_mean_final_position_error_measurements.append(evaluation)
             self.exp.agent.controller_and_memory_mean_task_cost_measurements.append(task_cost)
 
-        return estimated_trajectory, critic_evaluation, estimated_fuel_cost
+        return critic_evaluation
 
     def finish_batch(self):
         mean_loss = self.batch_loss.average()

@@ -47,7 +47,7 @@ class ImaginationBasedPlanner:
             if not self.exp.conf.controller.blind_first_action:
                 self.history_embedding = self.controller_and_memory.memory(
                     action=np.zeros(2),
-                    state=self.exp.env.agent_ship,
+                    objects=self.exp.env.objs(),
                     i_imagination=0,
                     filter_indices=filter_indices,
                     object_embeddings=object_embeddings
@@ -56,30 +56,24 @@ class ImaginationBasedPlanner:
         for i_imagination in range(self.exp.conf.max_imaginations_per_action):
             proposed_action = self.controller_and_memory.controller(self.exp.env.agent_ship) if self.controller_and_memory is not None else self.dummy_action()
 
-            if filter_indices[0]:
-                imagined_trajectory, _ = self.imaginator.imagine(
-                    self.exp.env.agent_ship,
-                    self.exp.env.planets,
-                    proposed_action,
-                    differentiable_trajectory=True
-                )
-
-                self.exp.env.add_imagined_ship_trajectory(imagined_trajectory)
-                imagined_state = imagined_trajectory[-1]
-            else:
-                imagined_state = None
+            imagined_objects, _ = self.imaginator.imagine(
+                self.exp.env.agent_ship,
+                proposed_action,
+                filter_indices,
+                differentiable_trajectory=True,
+                record=i_imagination == self.exp.conf.max_imaginations_per_action - 1
+            )
 
             if self.controller_and_memory is not None:
                 object_embeddings = None
 
                 if i_imagination == 0 and self.uses_filters() and not self.exp.conf.controller.filter_before_imagining:
-                    objects = [imagined_state] + self.exp.env.planets + self.exp.env.beacons
-                    filter_indices, object_embeddings = self.filter(objects)
+                    filter_indices, object_embeddings = self.filter(imagined_objects)
 
                 self.history_embedding = self.controller_and_memory.memory(
                     action=proposed_action,
-                    state=imagined_state,
-                    i_imagination=i_imagination,
+                    objects=imagined_objects,
+                    i_imagination=i_imagination + (1 if self.exp.conf.controller.blind_first_action else 0),
                     filter_indices=filter_indices,
                     object_embeddings=object_embeddings
                 )
@@ -112,12 +106,7 @@ class ImaginationBasedPlanner:
                 self.manager_mean_task_cost_measurements.append(task_cost)
 
         if isinstance(self.imaginator, FullImaginator):
-            static_objects = self.exp.env.planets + self.exp.env.beacons
-
-            self.imaginator.accumulate_loss(actual_trajectory, static_objects, detached_action)
-
-            for static_subject in static_objects:
-                self.imaginator.accumulate_loss([static_subject] * len(actual_trajectory), [p for p in static_objects if p is not static_subject] + [old_ship_state], detached_action)
+            self.imaginator.accumulate_loss(actual_trajectory, detached_action, filter_indices)
 
             # subjects = [old_ship_state] + self.exp.env.planets + self.exp.env.beacons
             # influencerss = [[x for x in subjects if x is not subject] for subject in subjects]
@@ -146,17 +135,15 @@ class ImaginationBasedPlanner:
             if filter_indices[0]:
                 self.imaginator.accumulate_loss(actual_trajectory, self.exp.env.planets, detached_action)
 
-        estimated_trajectory, critic_evaluation = self.imaginator.evaluate(
+        critic_evaluation = self.imaginator.evaluate(
             old_ship_state,
-            self.exp.env.planets,
             selected_action if self.controller_and_memory is not None else detached_action,
-            new_ship_state
+            new_ship_state,
+            filter_indices
         )
 
         if self.controller_and_memory is not None:
             self.controller_and_memory.accumulate_loss(critic_evaluation)
-
-        self.exp.env.add_estimated_ship_trajectory(estimated_trajectory)
 
         self.batch_action_magnitude.add(np.linalg.norm(detached_action))
         self.batch_n_planets_in_each_imagination.add(filter_indices.count(True))

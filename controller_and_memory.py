@@ -335,17 +335,16 @@ class SetMemory(torch.nn.Module):
 
         return object_embeddings
 
-    def forward(self, action, state, i_imagination, filter_indices, object_embeddings):
-        objects = [state] + self.exp.env.planets + self.exp.env.beacons
+    def forward(self, action, objects, i_imagination, filter_indices, object_embeddings):
         filtered_objects = [objekt for (objekt, filter_value) in zip(objects, filter_indices) if filter_value]
 
         if hasattr(self, 'measure_performance_under_more_and_unobserved_planets'):
             if self.measure_performance_under_more_and_unobserved_planets == 'only_ship_observed':
                 assert filter_indices is None
-                objects = [state] + self.exp.env.beacons
+                filtered_objects = objects[1:] + self.exp.env.beacons
             elif self.measure_performance_under_more_and_unobserved_planets == 'extra_planets_unobserved':
                 assert filter_indices is None
-                objects = [state] + self.exp.env.planets[:-1] + self.exp.env.beacons
+                filtered_objects = objects[1:] + self.exp.env.planets[:-1] + self.exp.env.beacons
 
         if object_embeddings is None:
             filtered_object_embeddings = self.get_object_embeddings(filtered_objects)

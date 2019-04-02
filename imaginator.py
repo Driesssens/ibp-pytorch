@@ -39,51 +39,65 @@ class Imaginator(torch.nn.Module):
 
         self.optimizer = torch.optim.Adam(self.parameters(), self.exp.conf.imaginator.learning_rate)
 
-    def imagine(self, ship: Ship, planets: List[Planet], action, differentiable_trajectory=False):
-        imagined_ship_trajectory = [deepcopy(ship)]
-        imagined_ship_trajectory[-1].wrap_in_tensors()
+    def imagine(self, ship: Ship, action, filter_indices, differentiable_trajectory=False, estimated=False, record=False):
+        if filter_indices[0]:
+            imagined_ship_trajectory = [deepcopy(ship)]
+            imagined_ship_trajectory[-1].wrap_in_tensors()
 
-        filtered_planets = self.hard_attention(ship, planets) if self.is_self_filtering(per_imag=False) else planets
+            filtered_planets = self.hard_attention(ship, self.exp.env.planets) if self.is_self_filtering(per_imag=False) else self.exp.env.planets
 
-        if not self.is_self_filtering(per_imag=True):
-            n_important = len([planet for planet in filtered_planets if not planet.is_secondary])
-            self.batch_important_p.add(n_important / self.exp.conf.n_planets)
-            self.batch_n_planets_in_each_imagination.add(len(filtered_planets))
-            self.batch_f_planets_in_each_imagination.add(len(filtered_planets) / len(planets) if len(planets) != 0 else 1)
-
-        for i_physics_step in range(self.exp.env.n_steps_per_action):
-            current_state = imagined_ship_trajectory[-1]
-
-            imagined_state = deepcopy(current_state)
-            imagined_state.xy_position = current_state.xy_position + self.exp.env.euler_method_step_size * current_state.xy_velocity
-
-            plan = self.hard_attention(current_state, planets) if self.is_self_filtering(per_imag=True) else filtered_planets
-
-            if self.is_self_filtering(per_imag=True):
-                n_important = len([planet for planet in plan if not planet.is_secondary])
+            if not self.is_self_filtering(per_imag=True):
+                n_important = len([planet for planet in filtered_planets if not planet.is_secondary])
                 self.batch_important_p.add(n_important / self.exp.conf.n_planets)
-                self.batch_n_planets_in_each_imagination.add(len(plan))
-                self.batch_f_planets_in_each_imagination.add(len(plan) / len(planets) if len(planets) != 0 else 1)
+                self.batch_n_planets_in_each_imagination.add(len(filtered_planets))
+                self.batch_f_planets_in_each_imagination.add(len(filtered_planets) / len(self.exp.env.planets) if len(self.exp.env.planets) != 0 else 1)
 
-            imagined_velocity, _ = self(
-                current_state,
-                plan,
-                action if i_physics_step == 0 else np.zeros(2)
-            )
+            for i_physics_step in range(self.exp.env.n_steps_per_action):
+                current_state = imagined_ship_trajectory[-1]
 
-            imagined_state.xy_velocity = imagined_velocity
-            imagined_ship_trajectory.append(imagined_state)
+                imagined_state = deepcopy(current_state)
+                imagined_state.xy_position = current_state.xy_position + self.exp.env.euler_method_step_size * current_state.xy_velocity
+
+                plan = self.hard_attention(current_state, self.exp.env.planets) if self.is_self_filtering(per_imag=True) else filtered_planets
+
+                if self.is_self_filtering(per_imag=True):
+                    n_important = len([planet for planet in plan if not planet.is_secondary])
+                    self.batch_important_p.add(n_important / self.exp.conf.n_planets)
+                    self.batch_n_planets_in_each_imagination.add(len(plan))
+                    self.batch_f_planets_in_each_imagination.add(len(plan) / len(self.exp.env.planets) if len(self.exp.env.planets) != 0 else 1)
+
+                imagined_velocity, _ = self(
+                    current_state,
+                    plan,
+                    action if i_physics_step == 0 else np.zeros(2)
+                )
+
+                imagined_state.xy_velocity = imagined_velocity
+                imagined_ship_trajectory.append(imagined_state)
+
+                if not differentiable_trajectory:
+                    current_state.detach_and_to_numpy()
+
+            target_position = torch.zeros(2) if len(self.exp.env.beacons) == 0 else torch.FloatTensor(self.exp.env.beacons[0].xy_position)
+            imagined_task_cost = torch.nn.functional.mse_loss(imagined_ship_trajectory[-1].xy_position.unsqueeze(0), target_position.unsqueeze(0))
 
             if not differentiable_trajectory:
-                current_state.detach_and_to_numpy()
+                imagined_ship_trajectory[-1].detach_and_to_numpy()
 
-        target_position = torch.zeros(2) if len(self.exp.env.beacons) == 0 else torch.FloatTensor(self.exp.env.beacons[0].xy_position)
-        imagined_task_cost = torch.nn.functional.mse_loss(imagined_ship_trajectory[-1].xy_position.unsqueeze(0), target_position.unsqueeze(0))
+            if estimated:
+                self.exp.env.add_estimated_ship_trajectory(imagined_ship_trajectory)
+            else:
+                self.exp.env.add_imagined_ship_trajectory(imagined_ship_trajectory)
 
-        if not differentiable_trajectory:
-            imagined_ship_trajectory[-1].detach_and_to_numpy()
+            imagined_state = imagined_ship_trajectory[-1]
+        else:
+            imagined_state = None
+            imagined_task_cost = None
 
-        return imagined_ship_trajectory, imagined_task_cost
+        imagined_objects = [imagined_state] + self.exp.env.planets + self.exp.env.beacons
+        filtered_imagined_objects = [obj if filter_value else None for (obj, filter_value) in zip(imagined_objects, filter_indices)]
+
+        return filtered_imagined_objects, imagined_task_cost
 
     def filter(self, ship: Ship, planets: List[Planet], threshold):
         with torch.no_grad():
@@ -205,9 +219,9 @@ class Imaginator(torch.nn.Module):
             # self.batch_l2_loss.add(mean_embedding_norm * self.exp.conf.imaginator.c_l2_loss)
             # self.batch_l2_loss.add(torch.stack(self.embed(ship_trajectory[0], planets)).norm(dim=1).mean() * self.exp.conf.imaginator.c_l2_loss)
 
-    def evaluate(self, old_ship_state: Ship, planets: List[Planet], action, actual_new_ship_state: Ship):
-        estimated_trajectory, critic_evaluation = self.imagine(old_ship_state, planets, action)
-        imagined_final_position = estimated_trajectory[-1].xy_position
+    def evaluate(self, old_ship_state: Ship, action, actual_new_ship_state: Ship, filter_indices):
+        imagined_objects, critic_evaluation = self.imagine(old_ship_state, action, [True] * len(filter_indices), estimated=True)
+        imagined_final_position = imagined_objects[0].xy_position
         actual_final_position = actual_new_ship_state.xy_position
 
         evaluation = np.square(imagined_final_position - actual_final_position).mean()
@@ -224,7 +238,7 @@ class Imaginator(torch.nn.Module):
             self.exp.agent.imaginator_mean_final_position_error_measurements.append(evaluation)
             self.exp.agent.controller_and_memory_mean_task_cost_measurements.append(task_cost)
 
-        return estimated_trajectory, critic_evaluation
+        return critic_evaluation
 
     def finish_batch(self):
         mean_loss = self.batch_loss.average()
