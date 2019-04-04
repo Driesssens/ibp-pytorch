@@ -493,7 +493,8 @@ class GeneralConfiguration:
                  with_beacons=False,
                  beacon_probability=1,
                  beacon_radial_distance_interval=(0.0, 1.5),
-                 gravity_cap=GravityCap.Low
+                 gravity_cap=GravityCap.Low,
+                 n_ice_rocks=0
                  ):
         self.n_planets = n_planets
         self.n_actions_per_episode = n_actions_per_episode
@@ -520,6 +521,7 @@ class GeneralConfiguration:
         self.beacon_probability = beacon_probability
         self.beacon_radial_distance_interval = beacon_radial_distance_interval
         self.gravity_cap = gravity_cap
+        self.n_ice_rocks = n_ice_rocks
 
     @property
     def routes_of_strategy(self):
@@ -537,6 +539,10 @@ class GeneralConfiguration:
                     ])
 
         return self._history_embedding_length
+
+    @property
+    def with_ice_rocks(self):
+        return self.n_ice_rocks > 0
 
 
 class Routes(IntEnum):

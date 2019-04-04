@@ -1,5 +1,5 @@
 from utilities import *
-from spaceship_environment import Ship, Planet, polar2cartesian, cartesian2polar
+from spaceship_environment import Ship, Planet, polar2cartesian, cartesian2polar, SpaceObject
 from typing import List
 from copy import deepcopy
 
@@ -15,14 +15,14 @@ class Imaginator(torch.nn.Module):
         self.exp = experiment
 
         self.relation_module = make_mlp_with_relu(
-            input_size=(1 if self.exp.conf.use_ship_mass else 0) + 1 + 2,  # ship mass + planet mass + difference vector between ship and planet xy position
+            input_size=self.exp.type_tensor_length(only_planets=True) + 1 + 2,  # planet type + planet mass + difference vector between ship and planet xy position
             hidden_layer_sizes=self.exp.conf.imaginator.relation_module_layer_sizes,
             output_size=self.exp.conf.imaginator.effect_embedding_length,
             final_relu=False
         )
 
         self.object_module = make_mlp_with_relu(
-            input_size=(1 if self.exp.conf.use_ship_mass else 0) + 2 + 2 + self.exp.conf.imaginator.effect_embedding_length,  # ship mass + ship xy velocity + action + effect embedding
+            input_size=2 + 2 + self.exp.conf.imaginator.effect_embedding_length,  # ship xy velocity + action + effect embedding
             hidden_layer_sizes=self.exp.conf.imaginator.object_module_layer_sizes,
             output_size=2,  # imagined velocity
             final_relu=False
@@ -47,7 +47,7 @@ class Imaginator(torch.nn.Module):
             filtered_planets = self.hard_attention(ship, self.exp.env.planets) if self.is_self_filtering(per_imag=False) else self.exp.env.planets
 
             if not self.is_self_filtering(per_imag=True):
-                n_important = len([planet for planet in filtered_planets if not planet.is_secondary])
+                n_important = len([planet for planet in filtered_planets if (planet.type is SpaceObject.Types.PLANET) and (not planet.is_secondary)])
                 self.batch_important_p.add(n_important / self.exp.conf.n_planets)
                 self.batch_n_planets_in_each_imagination.add(len(filtered_planets))
                 self.batch_f_planets_in_each_imagination.add(len(filtered_planets) / len(self.exp.env.planets) if len(self.exp.env.planets) != 0 else 1)
@@ -61,7 +61,7 @@ class Imaginator(torch.nn.Module):
                 plan = self.hard_attention(current_state, self.exp.env.planets) if self.is_self_filtering(per_imag=True) else filtered_planets
 
                 if self.is_self_filtering(per_imag=True):
-                    n_important = len([planet for planet in plan if not planet.is_secondary])
+                    n_important = len([planet for planet in plan if (planet.type is SpaceObject.Types.PLANET) and (not planet.is_secondary)])
                     self.batch_important_p.add(n_important / self.exp.conf.n_planets)
                     self.batch_n_planets_in_each_imagination.add(len(plan))
                     self.batch_f_planets_in_each_imagination.add(len(plan) / len(self.exp.env.planets) if len(self.exp.env.planets) != 0 else 1)
@@ -99,24 +99,10 @@ class Imaginator(torch.nn.Module):
 
         return filtered_imagined_objects, imagined_task_cost
 
-    def filter(self, ship: Ship, planets: List[Planet], threshold):
-        with torch.no_grad():
-            effect_embeddings = [
-                self.relation_module(tensor_from(
-                    ship.mass if self.exp.conf.use_ship_mass else None,
-                    planet.mass,
-                    tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
-                )) for planet in planets
-            ]
-
-        norms = [effect_embedding.norm().item() for effect_embedding in effect_embeddings]
-
-        return [planet for (planet, norm) in zip(planets, norms) if norm > threshold]
-
     def embed(self, ship: Ship, planets: List[Planet]):
         effect_embeddings = [
             self.relation_module(tensor_from(
-                ship.mass if self.exp.conf.use_ship_mass else None,
+                self.exp.type_tensor(planet, only_planets=True),
                 planet.mass,
                 tensor_from(ship.xy_position) - tensor_from(planet.xy_position)
             )) for planet in planets
@@ -160,7 +146,6 @@ class Imaginator(torch.nn.Module):
             aggregate_effect_embedding = torch.mean(stacked, dim=0)
 
         imagined_velocity = self.object_module(tensor_from(
-            ship.mass if self.exp.conf.use_ship_mass else None,
             ship.xy_velocity / self.exp.conf.imaginator.velocity_normalization_factor,
             action / self.exp.conf.imaginator.action_normalization_factor,
             aggregate_effect_embedding

@@ -7,6 +7,9 @@ import os
 import datetime
 from spaceship_environment import cartesian2polar, polar2cartesian, Planet, Ship, GravityCap
 import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
 import math
 
 
@@ -112,7 +115,51 @@ def full_imaginator_embedding_introspection(model_name, model_folders, n_measure
         plt.savefig(os.path.join(*(folders + ['{}_matrix_scatter'.format(title)])))
 
 
-def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_measurements, name=None, color_is_secondary=True):
+def setmemory_object_embedding_introspection2(model_name, model_folders, n_measurements, size=0.5):
+    experiment = Experiment.load(model_name, model_folders)
+    assert isinstance(experiment.agent.controller_and_memory.memory, SetMemory)
+
+    name = experiment_name(model_folders, model_name)
+    folders = ['measurements', 'setmemory_object_embedding_introspection2', name]
+    os.makedirs(os.path.join(*folders))
+
+    experiment.conf.max_imaginations_per_action = 1 if experiment.conf.controller.blind_first_action else 0
+
+    experiment.agent.controller_and_memory.memory.measure_setmemory_object_embedding_introspection = True
+    experiment.agent.controller_and_memory.memory.embeddings = []
+    experiment.agent.controller_and_memory.memory.metrics = []
+
+    experiment.evaluate(n_measurements)
+
+    embedding_statistics = analyze_embeddings(experiment.agent.controller_and_memory.memory.embeddings, 3, True)
+
+    metrics = pd.DataFrame(
+        experiment.agent.controller_and_memory.memory.metrics,
+        columns=['type', 'mass', 'radius', 'x', 'y']
+    )
+
+    results = pd.concat([embedding_statistics, metrics], axis=1)
+
+    for base in ['mass', 'radius']:
+        for log in [False, True]:
+            for metric in ['norm']:
+                scatter_plot = results.plot.scatter(
+                    x=base,
+                    y=metric,
+                    c='type',
+                    s=size,
+                    cmap=matplotlib.colors.ListedColormap(['red', 'blue', 'green']),
+                    logy=log,
+                ).get_figure()
+
+                scatter_plot.savefig(os.path.join(*(folders + ['{}_scatter_{}{}.png'.format(base, metric, '_log' if log else '')])))
+
+    import matplotlib.pyplot as plt
+    pd.plotting.scatter_matrix(results)
+    plt.savefig(os.path.join(*(folders + ['matrix_scatter'])))
+
+
+def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_measurements, name=None, color_is_secondary=True, size=0.1):
     experiment = Experiment.load(model_name, model_folders)
 
     name = experiment_name(model_folders, model_name)
@@ -155,16 +202,18 @@ def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_mea
 
             embeddings_list.append(embedding.detach().numpy())
             print(planet.is_secondary)
-            metrics_list.append([planet.mass, actual_radius, pretended_radius, gravitational_force_magnitude, 0 if planet.is_secondary else 1])
+            metrics_list.append([planet.mass, actual_radius, pretended_radius, gravitational_force_magnitude, experiment.type_number(planet, only_planets=True)])
 
     embedding_statistics = analyze_embeddings(embeddings_list, 3, True)
 
     metrics = pd.DataFrame(
         metrics_list,
-        columns=['mass', 'dist', 'radi', 'force', 'seco']
+        columns=['mass', 'dist', 'radi', 'force', 'type']
     )
 
     results = pd.concat([embedding_statistics, metrics], axis=1)
+
+    types, colors = experiment.types_and_colors(only_planets=True)
 
     for base in ['mass', 'dist', 'radi', 'force']:
         for log in [False, True]:
@@ -172,15 +221,15 @@ def imaginator_planet_embedding_introspection_2(model_name, model_folders, n_mea
                 scatter_plot = results.plot.scatter(
                     x=base,
                     y=metric,
-                    c='seco' if color_is_secondary else 'dist',
-                    s=0.1,
-                    cmap=matplotlib.colors.ListedColormap(['red', 'blue']),
+                    c='type' if color_is_secondary else 'dist',
+                    s=size,
+                    cmap=matplotlib.colors.ListedColormap(colors),
                     logy=log,
                 ).get_figure()
 
+                plt.gca().legend(handles=[mpatches.Patch(color=color, label=label) for color, label in zip(colors, types)])
                 scatter_plot.savefig(os.path.join(*(folders + ['{}_scatter_{}{}.png'.format(base, metric, '_log' if log else '')])))
 
-    import matplotlib.pyplot as plt
     pd.plotting.scatter_matrix(results)
     plt.savefig(os.path.join(*(folders + ['matrix_scatter'])))
 
@@ -478,8 +527,10 @@ def experiment_name(model_folders, model_name, date_first=False):
 #     name = "v_{}-memoryless_True-id_{}".format(i + 1, i)
 #     performance_under_more_and_unobserved_planets(name, ('storage', 'lisa', 'varia_hleak'), 500)
 
-# setmemory_object_embedding_introspection("many-10_bootstrapped_v1", ('storage', 'home', 'memless'), 500)
+setmemory_object_embedding_introspection2("many-0_FULL_filter-0.7_blind_beacon0.5", ('storage', 'home', 'memless'), 200)
 
-imaginator_planet_embedding_introspection_2("imgrea-many_4-l2_0-tresh_None-close_True-per_imag_False-l2of_False-sbf_False-v2", ('storage', 'home', 'memless'), 200)
+# imaginator_planet_embedding_introspection_2("imgrea-many_4-l2_0-tresh_None-close_True-per_imag_False-l2of_False-sbf_False-v2", ('storage', 'home', 'memless'), 200)
 
 # full_imaginator_embedding_introspection("full-many_0-none-l2_0", ('storage', 'home', 'memless'), 200)
+
+# imaginator_planet_embedding_introspection_2("img_ice-rocks-2-top-3-l2_0.05-_v3", ('storage', 'home', 'memless'), n_measurements=200)

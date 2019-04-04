@@ -355,10 +355,16 @@ class SetMemory(torch.nn.Module):
             for i, embedding in enumerate(filtered_object_embeddings):
                 obj = filtered_objects[i]
                 radius = np.linalg.norm(obj.xy_position)
-                is_planet = isinstance(obj, Planet)
+
+                if isinstance(obj, Planet):
+                    type = 0
+                elif isinstance(obj, Ship):
+                    type = 1
+                elif isinstance(obj, Beacon):
+                    type = 2
 
                 self.embeddings.append(embedding.detach().numpy())
-                self.metrics.append([int(is_planet), obj.mass, radius, obj.x, obj.y])
+                self.metrics.append([int(type), obj.mass, radius, obj.x, obj.y])
 
         if len(filtered_object_embeddings) == 0:
             aggregate_embedding = torch.zeros(self.exp.conf.controller.object_embedding_length)

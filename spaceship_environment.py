@@ -141,7 +141,8 @@ class SpaceshipEnvironment(gym.Env):
                  implicit_euler=False,
                  with_beacons=False,
                  beacon_probability=1,
-                 beacon_radial_distance_interval=(0.0, 1.5)
+                 beacon_radial_distance_interval=(0.0, 1.5),
+                 n_ice_rocks=0
                  ):
         """
         Args:
@@ -244,11 +245,18 @@ class SpaceshipEnvironment(gym.Env):
                 ide=self.n_planets + 1 + i
             ))
 
+        for i in range(self.n_ice_rocks):
+            self.planets.append(IceRock(
+                random_mass_interval=self.planets_random_mass_interval,
+                random_radial_distance_interval=self.planets_random_radial_distance_interval,
+                ide=self.n_planets + self.n_secondary_planets + 1 + i
+            ))
+
         if self.with_beacons and np.random.rand() <= self.beacon_probability:
             self.beacons = [Beacon(
                 mass=0,
                 random_radial_distance_interval=self.beacon_radial_distance_interval,
-                ide=self.n_planets + self.n_secondary_planets + 1
+                ide=self.n_planets + self.n_ice_rocks + self.n_secondary_planets + 1
             )]
         else:
             self.beacons = []
@@ -300,6 +308,9 @@ class SpaceshipEnvironment(gym.Env):
             xy_gravitational_forces = []
 
             for planet in self.planets:
+                if planet.type is SpaceObject.Types.ICE_ROCK:
+                    continue
+
                 pretended_radius = np.linalg.norm(self.agent_ship.xy_position - planet.xy_position)
                 pretended_xy_distance = planet.xy_position - self.agent_ship.xy_position
 
@@ -374,7 +385,7 @@ class SpaceshipEnvironment(gym.Env):
             arcade.draw_line(self.screen_position(0), self.screen_position(-1), self.screen_position(0), self.screen_position(1), arcade.color.BLUE, 1)
 
             for planet in self.planets:
-                arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(max(planet.mass, 0.01), planet=True), arcade.color.RED)
+                arcade.draw_circle_outline(self.screen_position(planet.x), self.screen_position(planet.y), self.screen_size(max(planet.mass, 0.01), planet=True), arcade.color.RED if planet.type is SpaceObject.Types.PLANET else arcade.color.ITALIAN_SKY_BLUE)
                 # arcade.draw_text("{:1.2f}".format(planet.mass), self.screen_position(planet.x), self.screen_position(planet.y), arcade.color.RED, self.screen_size(0.25), align='center', width=10, anchor_x='center')
 
             for beacon in self.beacons:
@@ -564,6 +575,7 @@ class SpaceObject:
         AGENT_SHIP = 1
         PLANET = 2
         BEACON = 3
+        ICE_ROCK = 4
 
     def __init__(self, random_mass_interval=None, random_radial_distance_interval=None, mass=None, xy_position=None, is_secondary=False, ide=None):
         if random_mass_interval:
@@ -667,6 +679,10 @@ class Planet(SpaceObject):
 
 class Beacon(SpaceObject):
     type = SpaceObject.Types.BEACON
+
+
+class IceRock(SpaceObject):
+    type = SpaceObject.Types.ICE_ROCK
 
 
 def cartesian2polar(x, y):

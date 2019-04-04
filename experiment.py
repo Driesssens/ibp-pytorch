@@ -7,7 +7,8 @@ import numpy as np
 import time
 from configuration import *
 from imagination_based_planner import ImaginationBasedPlanner
-from spaceship_environment import SpaceshipEnvironment
+from spaceship_environment import SpaceshipEnvironment, SpaceObject, Ship, Planet, Beacon, IceRock
+from utilities import *
 
 
 class Experiment:
@@ -386,9 +387,85 @@ class Experiment:
             with_beacons=self.conf.with_beacons,
             beacon_probability=self.conf.beacon_probability,
             beacon_radial_distance_interval=self.conf.beacon_radial_distance_interval,
-            cap_gravity=self.conf.gravity_cap
+            cap_gravity=self.conf.gravity_cap,
+            n_ice_rocks=self.conf.n_ice_rocks
         )
 
     def log(self, name, value):
         if self.tensorboard_writer is not None and value is not None:
             self.tensorboard_writer.add_scalar(name, value, self.agent.i_episode)
+
+    def type_tensor(self, space_object: SpaceObject, only_planets=False):
+        if only_planets:
+            if self.conf.with_ice_rocks:
+                return tensor_from(
+                    1 if isinstance(space_object, Planet) else 0,
+                    1 if isinstance(space_object, IceRock) else 0
+                )
+            else:
+                return None
+        else:
+            return tensor_from(
+                1 if isinstance(space_object, Ship) else 0,
+                1 if isinstance(space_object, Planet) else 0,
+                (1 if isinstance(space_object, Beacon) else 0) if self.conf.with_beacons else None,
+                (1 if isinstance(space_object, IceRock) else 0) if self.conf.with_ice_rocks else None
+            )
+
+    def type_tensor_length(self, only_planets=False):
+        if only_planets:
+            return 2 if self.conf.with_ice_rocks else 0
+        else:
+            return 2 + (1 if self.conf.with_beacons else 0) + (1 if self.conf.with_ice_rocks else 0)
+
+    def type_number(self, obj: SpaceObject, only_planets=False, force_secondary=False):
+        with_secondary = (self.conf.n_secondary_planets > 0) or force_secondary
+
+        if only_planets:
+            if isinstance(obj, Planet):
+                return 1 if with_secondary and obj.is_secondary else 0
+            elif isinstance(obj, IceRock):
+                return 2 if with_secondary else 1
+        else:
+            if isinstance(obj, Ship):
+                return 0
+            elif isinstance(obj, Planet):
+                return 2 if with_secondary and obj.is_secondary else 1
+            elif isinstance(obj, Beacon):
+                return 3 if with_secondary else 2
+            elif isinstance(obj, IceRock):
+                return 2 + (1 if self.conf.with_beacons else 0) + (1 if with_secondary else 0)
+
+    def types_and_colors(self, only_planets=False, force_secondary=False):
+        with_secondary = (self.conf.n_secondary_planets > 0) or force_secondary
+
+        if only_planets:
+            types = ['planet']
+            colors = ['red']
+
+            if with_secondary:
+                types.append('secondary')
+                colors.append('purple')
+
+            if self.conf.with_ice_rocks:
+                types.append('ice_rock')
+                colors.append('blue')
+
+            return types, colors
+        else:
+            types = ['ship', 'planet']
+            colors = ['green', 'red']
+
+            if with_secondary:
+                types.append('secondary')
+                colors.append('purple')
+
+            if self.conf.with_beacons:
+                types.append('beacon')
+                colors.append('orange')
+
+            if self.conf.with_ice_rocks:
+                types.append('ice_rock')
+                colors.append('blue')
+
+            return types, colors
