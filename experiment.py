@@ -189,8 +189,8 @@ class Experiment:
     def file_path(self, file_name):
         return os.path.join(self.directory_path(), file_name)
 
-    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False, sparse_report=False):
-        if sparse_report and not continuous_store:
+    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False, sparse_report=False, formal=False):
+        if sparse_report and not (continuous_store or formal):
             print("Warning: sparse report should only be used with continuous store. Will now disable sparse report")
             sparse_report = False
 
@@ -227,17 +227,23 @@ class Experiment:
             if measure_performance_every_n_episodes != 0:
                 if self.agent.i_episode % measure_performance_every_n_episodes == 0:
                     self.measure_performance(measure_performance_n_sample_episodes, first)
+                    if formal:
+                        self.measure_performance(measure_performance_n_sample_episodes, first, r='rp_')
                     first = False
 
-                    if continuous_store:
+                    if continuous_store or formal:
                         old_path = self.path
                         old_name = self.name
 
                         self.agent.i_episode -= 1
 
                         self.path += (self.name,)
-                        self.name = '{}'.format(self.agent.i_episode)
-                        os.makedirs(self.directory_path())
+                        self.name = '{}'.format('latest' if formal else self.agent.i_episode)
+
+                        try:
+                            os.makedirs(self.directory_path())
+                        except:
+                            pass
 
                         self.agent.store_model(training_status_update=True)
 
@@ -289,7 +295,7 @@ class Experiment:
                 if i_episode == n_episodes:
                     break
 
-    def measure_performance(self, n_episodes, first=False):
+    def measure_performance(self, n_episodes, first=False, r=''):
         stashed_train_model = self.train_model
         stashed_store_model = self.store_model
         stashed_tensorboard_writer = self.tensorboard_writer
@@ -321,7 +327,7 @@ class Experiment:
         if first:
             layout = {}
 
-            for thing in ('imaginator', 'controller', 'manager'):
+            for thing in (r + 'imaginator', r + 'controller', r + 'manager'):
                 layout[thing] = {
                     'extremes': ['Margin', ['{}/mean'.format(thing), '{}/min'.format(thing), '{}/max'.format(thing)]],
                     'percentile_10': ['Margin', ['{}/mean'.format(thing), '{}/10_percentile'.format(thing), '{}/90_percentile'.format(thing)]],
@@ -333,38 +339,38 @@ class Experiment:
         if self.conf.imaginator is not None:
             imaginator_performance = np.stack(self.agent.imaginator_mean_final_position_error_measurements)
 
-            self.log('imaginator/mean', imaginator_performance.mean())
-            self.log('imaginator/min', imaginator_performance.min())
-            self.log('imaginator/max', imaginator_performance.max())
-            self.log('imaginator/10_percentile', np.percentile(imaginator_performance, 10))
-            self.log('imaginator/90_percentile', np.percentile(imaginator_performance, 90))
-            self.log('imaginator/25_percentile', np.percentile(imaginator_performance, 25))
-            self.log('imaginator/75_percentile', np.percentile(imaginator_performance, 75))
-            self.log('imaginator/variance', imaginator_performance.var())
+            self.log(r + 'imaginator/mean', imaginator_performance.mean())
+            self.log(r + 'imaginator/min', imaginator_performance.min())
+            self.log(r + 'imaginator/max', imaginator_performance.max())
+            self.log(r + 'imaginator/10_percentile', np.percentile(imaginator_performance, 10))
+            self.log(r + 'imaginator/90_percentile', np.percentile(imaginator_performance, 90))
+            self.log(r + 'imaginator/25_percentile', np.percentile(imaginator_performance, 25))
+            self.log(r + 'imaginator/75_percentile', np.percentile(imaginator_performance, 75))
+            self.log(r + 'imaginator/variance', imaginator_performance.var())
 
         if self.conf.controller is not None:
             controller_performance = np.stack(self.agent.controller_and_memory_mean_task_cost_measurements)
 
-            self.log('controller/mean', controller_performance.mean())
-            self.log('controller/min', controller_performance.min())
-            self.log('controller/max', controller_performance.max())
-            self.log('controller/10_percentile', np.percentile(controller_performance, 10))
-            self.log('controller/90_percentile', np.percentile(controller_performance, 90))
-            self.log('controller/25_percentile', np.percentile(controller_performance, 25))
-            self.log('controller/75_percentile', np.percentile(controller_performance, 75))
-            self.log('controller/variance', controller_performance.var())
+            self.log(r + 'controller/mean', controller_performance.mean())
+            self.log(r + 'controller/min', controller_performance.min())
+            self.log(r + 'controller/max', controller_performance.max())
+            self.log(r + 'controller/10_percentile', np.percentile(controller_performance, 10))
+            self.log(r + 'controller/90_percentile', np.percentile(controller_performance, 90))
+            self.log(r + 'controller/25_percentile', np.percentile(controller_performance, 25))
+            self.log(r + 'controller/75_percentile', np.percentile(controller_performance, 75))
+            self.log(r + 'controller/variance', controller_performance.var())
 
         if self.conf.manager is not None and not self.agent.manager_delayed():
             manager_performance = np.stack(self.agent.manager_mean_task_cost_measurements)
 
-            self.log('manager/mean', manager_performance.mean())
-            self.log('manager/min', manager_performance.min())
-            self.log('manager/max', manager_performance.max())
-            self.log('manager/10_percentile', np.percentile(manager_performance, 10))
-            self.log('manager/90_percentile', np.percentile(manager_performance, 90))
-            self.log('manager/25_percentile', np.percentile(manager_performance, 25))
-            self.log('manager/75_percentile', np.percentile(manager_performance, 75))
-            self.log('manager/variance', manager_performance.var())
+            self.log(r + 'manager/mean', manager_performance.mean())
+            self.log(r + 'manager/min', manager_performance.min())
+            self.log(r + 'manager/max', manager_performance.max())
+            self.log(r + 'manager/10_percentile', np.percentile(manager_performance, 10))
+            self.log(r + 'manager/90_percentile', np.percentile(manager_performance, 90))
+            self.log(r + 'manager/25_percentile', np.percentile(manager_performance, 25))
+            self.log(r + 'manager/75_percentile', np.percentile(manager_performance, 75))
+            self.log(r + 'manager/variance', manager_performance.var())
 
         del self.agent.measure_performance
         del self.agent.imaginator_mean_final_position_error_measurements
