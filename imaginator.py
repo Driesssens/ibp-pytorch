@@ -226,44 +226,74 @@ class Imaginator(torch.nn.Module):
         return critic_evaluation
 
     def finish_batch(self):
-        mean_loss = self.batch_loss.average()
-        mean_l2_loss = self.batch_l2_loss.average()
-        self.exp.log("imaginator_mean_loss", mean_loss.item())
-        self.exp.log("imaginator_mean_l2_loss", mean_l2_loss.item())
-        self.exp.log("imaginator_mean_total_loss", mean_loss.item() + mean_l2_loss.item())
+        empty = self.batch_loss.counter == 0
 
-        if self.exp.train_model:
-            self.optimizer.zero_grad()
+        if empty:
+            self.exp.log("imaginator_mean_loss", torch.tensor(float('nan')))
+            self.exp.log("imaginator_mean_l2_loss", torch.tensor(float('nan')))
+            self.exp.log("imaginator_mean_total_loss", torch.tensor(float('nan')))
 
-            if self.exp.conf.imaginator.batch_loss_sum:
-                (self.batch_loss.cumulative_value + self.batch_l2_loss.cumulative_value).backward()
-            else:
-                (mean_loss + mean_l2_loss).backward()
+            if self.exp.train_model:
+                self.exp.log("imaginator_batch_norm", torch.tensor(float('nan')))
 
-            self.exp.log("imaginator_batch_norm", gradient_norm(self.parameters()))
+                if self.exp.conf.imaginator.max_gradient_norm is not None:
+                    self.exp.log("imaginator_batch_clipped_norm", torch.tensor(float('nan')))
 
-            if self.exp.conf.imaginator.max_gradient_norm is not None:
-                torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.imaginator.max_gradient_norm)
-                self.exp.log("imaginator_batch_clipped_norm", gradient_norm(self.parameters()))
+            self.batch_loss = Accumulator()
+            self.batch_l2_loss = Accumulator()
 
-            self.optimizer.step()
+            self.exp.log("imaginator_mean_final_position_error", self.batch_evaluation.average())
+            self.batch_evaluation = Accumulator()
 
-        self.batch_loss = Accumulator()
-        self.batch_l2_loss = Accumulator()
+            self.exp.log("controller_and_memory_mean_task_cost", self.batch_task_cost.average())
+            self.batch_task_cost = Accumulator()
 
-        self.exp.log("imaginator_mean_final_position_error", self.batch_evaluation.average())
-        self.batch_evaluation = Accumulator()
+            self.exp.log("imaginator_mean_n_planets", torch.tensor(float('nan')))
+            self.exp.log("imaginator_mean_f_planets", torch.tensor(float('nan')))
+            self.exp.log("imaginator_mean_important_p", torch.tensor(float('nan')))
 
-        self.exp.log("controller_and_memory_mean_task_cost", self.batch_task_cost.average())
-        self.batch_task_cost = Accumulator()
+            self.batch_important_p = Accumulator()
+            self.batch_n_planets_in_each_imagination = Accumulator()
+            self.batch_f_planets_in_each_imagination = Accumulator()
+        else:
+            mean_loss = self.batch_loss.average()
+            mean_l2_loss = self.batch_l2_loss.average()
+            self.exp.log("imaginator_mean_loss", mean_loss.item())
+            self.exp.log("imaginator_mean_l2_loss", mean_l2_loss.item())
+            self.exp.log("imaginator_mean_total_loss", mean_loss.item() + mean_l2_loss.item())
 
-        self.exp.log("imaginator_mean_n_planets", self.batch_n_planets_in_each_imagination.average())
-        self.exp.log("imaginator_mean_f_planets", self.batch_f_planets_in_each_imagination.average())
-        self.exp.log("imaginator_mean_important_p", self.batch_important_p.average())
+            if self.exp.train_model:
+                self.optimizer.zero_grad()
 
-        self.batch_important_p = Accumulator()
-        self.batch_n_planets_in_each_imagination = Accumulator()
-        self.batch_f_planets_in_each_imagination = Accumulator()
+                if self.exp.conf.imaginator.batch_loss_sum:
+                    (self.batch_loss.cumulative_value + self.batch_l2_loss.cumulative_value).backward()
+                else:
+                    (mean_loss + mean_l2_loss).backward()
+
+                self.exp.log("imaginator_batch_norm", gradient_norm(self.parameters()))
+
+                if self.exp.conf.imaginator.max_gradient_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(self.parameters(), self.exp.conf.imaginator.max_gradient_norm)
+                    self.exp.log("imaginator_batch_clipped_norm", gradient_norm(self.parameters()))
+
+                self.optimizer.step()
+
+            self.batch_loss = Accumulator()
+            self.batch_l2_loss = Accumulator()
+
+            self.exp.log("imaginator_mean_final_position_error", self.batch_evaluation.average())
+            self.batch_evaluation = Accumulator()
+
+            self.exp.log("controller_and_memory_mean_task_cost", self.batch_task_cost.average())
+            self.batch_task_cost = Accumulator()
+
+            self.exp.log("imaginator_mean_n_planets", self.batch_n_planets_in_each_imagination.average())
+            self.exp.log("imaginator_mean_f_planets", self.batch_f_planets_in_each_imagination.average())
+            self.exp.log("imaginator_mean_important_p", self.batch_important_p.average())
+
+            self.batch_important_p = Accumulator()
+            self.batch_n_planets_in_each_imagination = Accumulator()
+            self.batch_f_planets_in_each_imagination = Accumulator()
 
     def store_model(self):
         torch.save(self.state_dict(), self.exp.file_path('imaginator_state_dict'))

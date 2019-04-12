@@ -112,19 +112,23 @@ class Experiment:
             except:
                 root_episode = 0
 
-            subfolders = [int(f.name) for f in os.scandir(loaded_experiment.directory_path()) if f.is_dir()]
+            try:
+                subfolders = [int(f.name) for f in os.scandir(loaded_experiment.directory_path()) if f.is_dir()]
 
-            if len(subfolders) == 0:
-                last_episode = root_episode
-            else:
-                # print("subfolders: {}".format(subfolders))
-                last_episode = str(max(root_episode, max(subfolders)))
-                # print("last_episode: {}".format(last_episode))
+                if len(subfolders) == 0:
+                    last_episode = root_episode
+                else:
+                    # print("subfolders: {}".format(subfolders))
+                    last_episode = str(max(root_episode, max(subfolders)))
+                    # print("last_episode: {}".format(last_episode))
+
+            except ValueError:
+                last_episode = 'latest'
 
             old_path = loaded_experiment.path
             old_name = loaded_experiment.name
 
-            if root_episode < int(last_episode):
+            if last_episode == 'latest' or (root_episode < int(last_episode)):
                 loaded_experiment.path += (loaded_experiment.name,)
                 loaded_experiment.name = '{}'.format(last_episode)
 
