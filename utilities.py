@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from enum import Enum
+import random
 
 
 def tensor_from(*args):
@@ -219,3 +220,38 @@ class ClippedNormal(torch.distributions.Normal):
             results = torch.where(value < self.upper, results, (1 - super().cdf(self.upper)).log())
 
         return results
+
+
+colors = [
+    (244, 67, 54),
+    (233, 30, 99),
+    (156, 39, 176),
+    (103, 58, 183),
+    (63, 81, 181),
+    (33, 150, 243),
+    (3, 169, 244),
+    (0, 188, 212),
+    (0, 150, 136),
+    (76, 175, 80),
+    (139, 195, 74),
+    (205, 220, 57),
+    (255, 235, 59),
+    (255, 193, 7),
+    (255, 152, 0),
+    (255, 87, 34),
+    (158, 158, 158),
+] * 5
+
+
+def get_color(i, shuffle=0):
+    if shuffle == 0:
+        the_colors = colors
+    else:
+        the_colors = random.Random(shuffle).sample(colors, len(colors))
+
+    the_color = the_colors[i % len(the_colors)]
+    return the_color
+
+
+def color_string(the_color, alpha=1.0):
+    return 'rgba({},{},{},{})'.format(the_color[0], the_color[1], the_color[2], alpha)
