@@ -15,7 +15,7 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-path = Path() / 'storage' / 'final' / 'formal1'
+path = Path() / 'storage' / 'final' / 'formal2'
 # runs = Runs(path, done_hours=20, done_steps=100000).only_done()
 runs = Runs(path, done_hours=20, done_steps=100000).only_done()
 groups = runs.group(['v'])
@@ -46,7 +46,7 @@ app.layout = html.Div([
             dcc.Dropdown(
                 id='yaxis-column',
                 options=[{'label': i, 'value': i} for i in available_indicators],
-                value='controller/mean'
+                value='all_controller/mean'
             )], style={}),
         html.Div([
             dcc.RadioItems(
@@ -59,18 +59,39 @@ app.layout = html.Div([
             dcc.Dropdown(
                 id='yaxis-column2',
                 options=[{'label': i, 'value': i} for i in available_indicators],
+                value='mean_n_planets_in_each_imagination'
             )], style={}),
         html.Div([
             dcc.RadioItems(
                 id='yaxis-type2',
                 options=[{'label': i, 'value': i} for i in ['linear', 'log', 'same']],
-                value='same',
+                value='linear',
+                labelStyle={'display': 'inline-block'}
+            )], style={}),
+        html.Div([
+            dcc.RadioItems(
+                id='secondary',
+                options=[{'label': i, 'value': i} for i in ['overlay', 'subplot']],
+                value='subplot',
                 labelStyle={'display': 'inline-block'}
             )], style={}),
         html.Div([
             html.Button('Shuffle colors', id='button')
         ], style={}),
         html.Div([
+            dcc.RadioItems(
+                id='color-bind',
+                options=[{'label': i, 'value': i} for i in ['c_id', 'c_han']],
+                value='c_han',
+                labelStyle={'display': 'inline-block'}
+            )], style={}),
+        html.Div([
+            dcc.RadioItems(
+                labelStyle={'display': 'inline-block'},
+                id=generate_control_id(setting),
+                options=[{'label': str(i), 'value': i} for i in values],
+                value=list(values)[0]
+            ) if setting in ['blind', 'game', 'early'] else
             dcc.Checklist(
                 labelStyle={'display': 'inline-block'},
                 id=generate_control_id(setting),
@@ -90,7 +111,7 @@ app.layout = html.Div([
             style_table={'textAlign': 'left', 'height': '5px', 'minWidth': '0px', 'padding': '0', 'margin': '0'},
             style_cell={'textAlign': 'left', 'height': '5px', 'minWidth': '0px', 'overflow': 'hidden', 'padding': '0', 'margin': '0'},
             style_data_conditional=[{"if": {"filter": 'c eq num({})'.format(i), 'column_id': 'c'}, 'backgroundColor': color_string(get_color(i, shuffle=i_color)), 'color': color_string(get_color(i, shuffle=i_color))} for i, _ in enumerate(groups)],
-            selected_rows=[]
+            selected_rows=[0]
         ),
         # html.Div([
         #     dcc.Checklist(
@@ -101,7 +122,7 @@ app.layout = html.Div([
 
     ], style={'float': 'left', 'height': '100%'}),
 
-    dcc.Graph(id='indicator-graphic', animate=True, config=dict(scrollZoom=True, showAxisDragHandles=True, showAxisRangeEntryBoxes=True, autoSizable=True, responsive=True), style={'float': 'right', 'flex': '1', 'width': '90%', 'height': '90%'}),
+    dcc.Graph(id='indicator-graphic', animate=True, config=dict(scrollZoom=True, showAxisDragHandles=True, showAxisRangeEntryBoxes=True, autoSizable=True, responsive=True, editable=False), style={'float': 'right', 'flex': '1', 'width': '90%', 'height': '90%'}),
 ], style={'display': 'flex', 'height': '98vh'})
 
 
@@ -110,7 +131,7 @@ app.layout = html.Div([
         Output('table', 'data'),
         Output('table', 'selected_rows')
     ],
-    [Input(generate_control_id(setting), 'values') for setting in runs.conf if setting not in ('v', 'id')],
+    [Input(generate_control_id(setting), 'value' if setting in ['blind', 'game', 'early'] else 'values') for setting in runs.conf if setting not in ('v', 'id')],
     [State('table', "derived_virtual_data"), State('table', "derived_virtual_selected_rows"), ]
 )
 def display_controls(*args):
@@ -123,7 +144,7 @@ def display_controls(*args):
         member = True
 
         for setting, filter_values in zip(list(runs.conf), filter):
-            if group.conf[setting] not in filter_values:
+            if (isinstance(filter_values, list) and group.conf[setting] not in filter_values) or (not isinstance(filter_values, list) and group.conf[setting] != filter_values):
                 member = False
 
         if member:
@@ -131,8 +152,8 @@ def display_controls(*args):
 
     data = [group.dict(n) for n, group in enumerate(groups) if group in filtered_groups]
 
-    preexisting_group_ids = [row['c'] for row in rows]
-    selected_group_ids = [rows[i]['c'] for i in selected_rows]
+    preexisting_group_ids = [row['c'] for row in rows] if rows is not None else []
+    selected_group_ids = [rows[i]['c'] for i in selected_rows] if selected_rows is not None else []
     new_selected_rows = [i for i, group in enumerate(filtered_groups) if (groups.index(group) not in preexisting_group_ids) or (groups.index(group) in selected_group_ids)]
 
     return data, new_selected_rows
@@ -154,9 +175,11 @@ def generate_output_id(value1, value2):
     Input('table', "derived_virtual_data"),
     Input('table', "derived_virtual_selected_rows"),
     Input('button', 'n_clicks'),
+    Input('color-bind', 'value'),
+    Input('secondary', 'value'),
 ]
 )
-def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button):
+def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary):
     if button is not None:
         global i_color
         i_color = button
@@ -167,33 +190,42 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
     traces = []
 
     selected_group_ids = [rows[i]['c'] for i in selected_rows]
+    sec = secondary != 'overlay'
 
     for i, group in enumerate(groups):
         if (selected_rows is not None) and (i in selected_group_ids):
-            traces += group.trace(yaxis_column_name, get_color(i, shuffle=i_color), yaxis_column_name2, yaxis_type2 == 'same')
+            the_color = i if color_bind == 'c_id' else list(runs.conf['han']).index(group.conf['han'])
+            traces += group.trace(yaxis_column_name, get_color(the_color, shuffle=i_color), yaxis_column_name2, sec, xaxis_column_name == 'hours')
 
     return ({
                 'data': traces,
                 'layout': go.Layout(
-                    autosize=True,
+                    autosize=False,
                     # yaxis=go.layout.YAxis(type='linear' if yaxis_type == 'Linear' else 'log', hoverformat=".4f", automargin=True, showline=True),
-                    yaxis=go.layout.YAxis(type=yaxis_type, automargin=True, showline=True),
+                    yaxis=go.layout.YAxis(type=yaxis_type, automargin=True, showline=False, domain=[0.25, 1] if sec else [0, 1]),
                     yaxis2=go.layout.YAxis(
                         type=yaxis_type if yaxis_type2 == 'same' else yaxis_type2,
                         automargin=True,
-                        showline=True,
-                        side='right',
-                        overlaying='y',
-                        zeroline=False
+                        showline=False,
+                        overlaying='free' if sec else 'y',
+                        side='left' if sec else 'right',
+                        zeroline=True,
+                        rangemode='tozero',
+                        domain=[0, 0.2] if sec else [0, 1]
                     ) if yaxis_column_name2 is not None and yaxis_type2 != 'same' else None,
-                    xaxis=go.layout.XAxis(automargin=True, showline=True),
+                    xaxis=go.layout.XAxis(automargin=True, showline=True, rangemode='tozero'),
                     margin={'l': 40, 'b': 25, 't': 25, 'r': 25},
-                    showlegend=False,
+                    showlegend=True,
+                    legend=go.layout.Legend(x=0.5, xanchor='center'),
                     dragmode='pan',
                     hoverlabel=go.layout.Hoverlabel(namelength=-1)
                 )
             },
-            [{"if": {"filter": 'c eq num({})'.format(i), 'column_id': 'c'}, 'backgroundColor': color_string(get_color(i, shuffle=i_color)), 'color': color_string(get_color(i, shuffle=i_color))} for i, _ in enumerate(groups)]
+            [{
+                "if": {"filter": 'c eq num({})'.format(i), 'column_id': 'c'},
+                'backgroundColor': color_string(get_color(i if color_bind == 'c_id' else list(runs.conf['han']).index(group.conf['han']), shuffle=i_color)),
+                'color': color_string(get_color(i if color_bind == 'c_id' else list(runs.conf['han']).index(group.conf['han']), shuffle=i_color))
+            } for i, group in enumerate(groups)]
     )
 
 

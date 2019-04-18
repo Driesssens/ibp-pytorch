@@ -315,7 +315,7 @@ class Group:
     def name(self):
         return '-'.join('{}_{}'.format(left, right) for left, right in self.conf.items() if right is not 'grouped')
 
-    def trace(self, column, color, column2=None, same=False):
+    def trace(self, column, color, column2=None, sec=False, hours=False):
         thing = [
             go.Scatter(
                 name='0.05',
@@ -354,6 +354,7 @@ class Group:
                 hoverinfo='text',
                 text=list(reversed(range(len(self.n_changes)))),
                 textposition='bottom center',
+                showlegend=False,
                 marker=go.scatter.Marker(color=color_string(color), symbol='diamond')
             )
         ]
@@ -367,8 +368,9 @@ class Group:
                     text=self.n,
                     hovertemplate="%{y:.4f} [%{text}]",
                     mode='lines',
-                    line=go.scatter.Line(color=color_string(color), dash='dot'),
-                    yaxis='y' if same else'y2'),
+                    showlegend=False,
+                    line=go.scatter.Line(color=color_string(color), dash='solid' if sec else 'dot'),
+                    yaxis='y2'),
             )
 
         return thing
@@ -646,5 +648,5 @@ def test3():
     fig = go.Figure(data=[trace], layout=layout)
     pyo.plot(fig)
 
-runs_to_csvs(Path() / 'storage' / 'final' / 'formal1')
-runs_to_csvs(Path() / 'storage' / 'final' / 'formal2')
+# runs_to_csvs(Path() / 'storage' / 'final' / 'formal1')
+# runs_to_csvs(Path() / 'storage' / 'final' / 'formal2')
