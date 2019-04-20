@@ -3,7 +3,7 @@ import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
 import dash_table
-
+import math
 from utilities import get_color, color_string
 import pandas as pd
 import plotly.graph_objs as go
@@ -15,10 +15,9 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-path = Path() / 'storage' / 'final' / 'formal2'
-# runs = Runs(path, done_hours=20, done_steps=100000).only_done()
-runs = Runs(path, done_hours=20, done_steps=100000).only_done()
-groups = runs.group(['v'])
+path = Path() / 'storage' / 'final' / 'formal1'
+runs = Runs(path, done_hours=20, done_steps=100000)
+groups = runs.group(['v'], times=True)
 
 print(groups)
 i_color = 0
@@ -35,6 +34,13 @@ def generate_control_id(setting):
 
 app.layout = html.Div([
     html.Div([
+        html.Div([
+            dcc.RadioItems(
+                id='zoom',
+                options=[{'label': str(i), 'value': i} for i in [0.1, 1, 10, 100]],
+                value=1,
+                labelStyle={'display': 'inline-block'}
+            )], style={}),
         html.Div([
             dcc.RadioItems(
                 id='xaxis-column',
@@ -97,7 +103,7 @@ app.layout = html.Div([
                 id=generate_control_id(setting),
                 options=[{'label': str(i), 'value': i} for i in values],
                 values=list(values)
-            ) for setting, values in runs.conf.items() if setting not in ('v', 'id')
+            ) for setting, values in runs.conf.items() if setting not in ('v', 'id') and groups[0].conf[setting] != 'grouped'
         ]),
         dash_table.DataTable(
             id='table',
@@ -122,7 +128,7 @@ app.layout = html.Div([
 
     ], style={'float': 'left', 'height': '100%'}),
 
-    dcc.Graph(id='indicator-graphic', animate=True, config=dict(scrollZoom=True, showAxisDragHandles=True, showAxisRangeEntryBoxes=True, autoSizable=True, responsive=True, editable=False), style={'float': 'right', 'flex': '1', 'width': '90%', 'height': '90%'}),
+    dcc.Graph(id='indicator-graphic', animate=False, config=dict(scrollZoom=True, clear_on_unhover=True, showAxisDragHandles=True, showAxisRangeEntryBoxes=True, autoSizable=True, responsive=True, editable=False), style={'float': 'right', 'flex': '1', 'width': '90%', 'height': '90%'}),
 ], style={'display': 'flex', 'height': '98vh'})
 
 
@@ -131,10 +137,11 @@ app.layout = html.Div([
         Output('table', 'data'),
         Output('table', 'selected_rows')
     ],
-    [Input(generate_control_id(setting), 'value' if setting in ['blind', 'game', 'early'] else 'values') for setting in runs.conf if setting not in ('v', 'id')],
+    [Input(generate_control_id(setting), 'value' if setting in ['blind', 'game', 'early'] else 'values') for setting in runs.conf if setting not in ('v', 'id') and groups[0].conf[setting] != 'grouped'],
     [State('table', "derived_virtual_data"), State('table', "derived_virtual_selected_rows"), ]
 )
 def display_controls(*args):
+    print(args)
     filter = args[:-2]
     rows, selected_rows = args[-2:]
 
@@ -177,9 +184,14 @@ def generate_output_id(value1, value2):
     Input('button', 'n_clicks'),
     Input('color-bind', 'value'),
     Input('secondary', 'value'),
+    Input('zoom', 'value'),
+    # Input('indicator-graphic', 'hoverData')
 ]
 )
-def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary):
+def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary, zoom):
+    # hover_names = [point['customdata'] for point in hover['points'] if 'customdata' in point] if hover is not None else []
+    hover_names = []
+
     if button is not None:
         global i_color
         i_color = button
@@ -189,20 +201,35 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
 
     traces = []
 
-    selected_group_ids = [rows[i]['c'] for i in selected_rows]
+    selected_group_ids = [rows[i]['c'] for i in selected_rows] if selected_rows is not None else []
+
+    print(dash.callback_context.triggered)
+    new_xax = 'xaxis-column.value' in [thing['prop_id'] for thing in dash.callback_context.triggered]
+    print(new_xax)
+
     sec = secondary != 'overlay'
 
     for i, group in enumerate(groups):
         if (selected_rows is not None) and (i in selected_group_ids):
             the_color = i if color_bind == 'c_id' else list(runs.conf['han']).index(group.conf['han'])
-            traces += group.trace(yaxis_column_name, get_color(the_color, shuffle=i_color), yaxis_column_name2, sec, xaxis_column_name == 'hours')
+            traces += group.trace(yaxis_column_name, get_color(the_color, shuffle=i_color), yaxis_column_name2, sec, xaxis_column_name == 'hours', True if group.name in hover_names else False)
+
+    if new_xax:
+        xax = go.layout.XAxis(automargin=True, showline=True, rangemode='tozero', range=([0, 24] if xaxis_column_name == 'hours' else [0, 100000]))
+    else:
+        xax = go.layout.XAxis(automargin=True, showline=True, rangemode='tozero', range=([0, 24] if xaxis_column_name == 'hours' else [0, 100000]))
+
+    if yaxis_type == 'log':
+        yrange = [math.log10(0.025), math.log10(zoom)]
+    else:
+        yrange = [0, zoom]
 
     return ({
                 'data': traces,
                 'layout': go.Layout(
                     autosize=False,
                     # yaxis=go.layout.YAxis(type='linear' if yaxis_type == 'Linear' else 'log', hoverformat=".4f", automargin=True, showline=True),
-                    yaxis=go.layout.YAxis(type=yaxis_type, automargin=True, showline=False, domain=[0.25, 1] if sec else [0, 1]),
+                    yaxis=go.layout.YAxis(type=yaxis_type, automargin=True, range=yrange, showline=False, domain=[0.25, 1] if sec else [0, 1]),
                     yaxis2=go.layout.YAxis(
                         type=yaxis_type if yaxis_type2 == 'same' else yaxis_type2,
                         automargin=True,
@@ -211,14 +238,16 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
                         side='left' if sec else 'right',
                         zeroline=True,
                         rangemode='tozero',
+                        autorange=True,
                         domain=[0, 0.2] if sec else [0, 1]
                     ) if yaxis_column_name2 is not None and yaxis_type2 != 'same' else None,
-                    xaxis=go.layout.XAxis(automargin=True, showline=True, rangemode='tozero'),
+                    xaxis=xax,
                     margin={'l': 40, 'b': 25, 't': 25, 'r': 25},
                     showlegend=True,
                     legend=go.layout.Legend(x=0.5, xanchor='center'),
                     dragmode='pan',
-                    hoverlabel=go.layout.Hoverlabel(namelength=-1)
+                    # clickmode='event+select',
+                    hoverlabel=go.layout.Hoverlabel(namelength=-1),
                 )
             },
             [{

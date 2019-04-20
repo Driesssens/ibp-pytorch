@@ -23,7 +23,7 @@ STANDARD_TIME_AND_STEPS_BASED_ON = 'controller/mean'
 CSVS_FOLDER = 'csvs'
 
 
-def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDARD_TIME_AND_STEPS_BASED_ON, verbose=False, add_performance_agg=('all', 10000, 20000), add_manager_ship_p=True):
+def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDARD_TIME_AND_STEPS_BASED_ON, verbose=False, add_performance_agg=('all', 10000, 20000), add_manager_ship_p=True, time_in_hours=True):
     tf_data = EventAccumulator(str(path), purge_orphaned_data=False).Reload().scalars
 
     if len(tf_data.Keys()) == 0:
@@ -44,7 +44,7 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
             continue
 
     # Get and validate all steps per key
-    all_steps_per_key = [tuple(scalar_event.step for scalar_event in scalar_events) for scalar_events in (filtered_tf_data[:-1] if 'imaginator_mean_dynamic_final_position_error' in true_metrics else filtered_tf_data)]
+    all_steps_per_key = [tuple(sorted(set(scalar_event.step for scalar_event in scalar_events))) for scalar_events in (filtered_tf_data[:-1] if 'imaginator_mean_dynamic_final_position_error' in true_metrics else filtered_tf_data)]
     n_steps_per_key = [len(tup) for tup in all_steps_per_key]
 
     set_of_n_steps = set(n_steps_per_key)
@@ -52,9 +52,14 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
     skipping_last_events = len(set_of_n_steps) == 2
 
+    try:
+        clocks = tf_data.Items('clock')
+    except KeyError:
+        clocks = []
+
     if len(set_of_n_steps) > 2 or \
             len(set(all_steps_per_key)) > 3 or \
-            skipping_last_events and max(set_of_n_steps) - min_n_steps != 1:
+            skipping_last_events and max(set_of_n_steps) - min_n_steps > 1:
         print("Skipping {} because not all metrics had same (number of) steps.".format(str(path)))
         print(set(n_steps_per_key))
         print(set(all_steps_per_key))
@@ -72,17 +77,31 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
     for metric, tf_events in zip(true_metrics, filtered_tf_data):
         values = []
+        last_step = None
 
         if time_and_steps_based_on == metric:
             for i_step, tf_event in enumerate(tf_events):
                 if i_step < min_n_steps:
+                    if last_step is not None and last_step == tf_event.step:
+                        steps.pop()
+                        times.pop()
+                        values.pop()
+
                     steps.append(tf_event.step)
                     times.append(tf_event.wall_time)
                     values.append(tf_event.value)
+
+                    last_step = tf_event.step
         elif metric == 'imaginator_mean_dynamic_final_position_error':
             for i_step, tf_event in enumerate(tf_events):
+                if last_step is not None and last_step == tf_event.step:
+                    values.pop()
+                    imaginator_mean_dynamic_final_position_error_steps.pop()
+
                 imaginator_mean_dynamic_final_position_error_steps.append(tf_event.step)
                 values.append(tf_event.value)
+
+                last_step = tf_event.step
 
             imaginator_mean_dynamic_final_position_error_len = len(values)
         elif metric == 'imaginator_mean_static_final_position_error':
@@ -91,6 +110,10 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
             for i_step, tf_event in enumerate(tf_events):
                 step = tf_event.step
 
+                if last_step is not None and last_step == step:
+                    values.pop()
+                    j_step -= 1
+
                 while step != imaginator_mean_dynamic_final_position_error_steps[j_step]:
                     values.append(None)
                     j_step += 1
@@ -98,15 +121,45 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
                 values.append(tf_event.value)
                 j_step += 1
 
+                last_step = step
+
             while len(values) != imaginator_mean_dynamic_final_position_error_len:
                 values.append(None)
 
         else:
-            values = [tf_event.value for tf_event in tf_events]
+            for tf_event in tf_events:
+                if last_step is not None and last_step == tf_event.step:
+                    values.pop()
+
+                values.append(tf_event.value)
+                last_step = tf_event.step
 
         valuess[metric] = values[:min_n_steps]
 
-    valuess['times'] = [time - times[0] for time in times]
+    nice_times = []
+
+    offset = times[0]
+    latest_raw = None
+    i_clock = 0
+
+    for step, time in zip(steps, times):
+        if i_clock < len(clocks) and clocks[i_clock].step < step:
+            offset = clocks[i_clock].wall_time - latest_raw
+            i_clock += 1
+
+        latest_raw = time - offset
+
+        nice_times.append(latest_raw / ((60 * 60) if time_in_hours else 1))
+
+        # offset = next((clock.wall_time for clock in clocks if clock.step < step), times[0])
+        # nice_times.append((time - offset) / ((60 * 60) if time_in_hours else 1))
+
+    valuess['times'] = nice_times
+
+    # if time_in_hours:
+    #     valuess['times'] = [(time - times[0]) / (60 * 60) for time in times]
+    # else:
+    #     valuess['times'] = [time - times[0] for time in times]
 
     if 'manager_mean_ship_p' not in true_metrics and add_manager_ship_p:
         valuess['manager_mean_ship_p'] = [1.0 for _ in steps]
@@ -114,6 +167,10 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
         if verbose:
             print("Added manager_mean_ship_p = 1.0 to {}".format(path))
+
+    if len(steps) == 0:
+        print("Skipping {} because it contains no rows.".format(str(path)))
+        return
 
     data_frame = pandas.DataFrame(valuess, index=steps, columns=['times'] + true_metrics)
 
@@ -168,7 +225,7 @@ class Runs:
         new.selection = '-'.join('{}_{}'.format(left, right) for left, right in kwargs.items())
         return new
 
-    def group(self, group_settings):
+    def group(self, group_settings, steps=True, times=False):
         groups = []
         remaining_confs = {key: value for key, value in self.conf.items() if not (key in group_settings or key == 'id')}
 
@@ -182,7 +239,7 @@ class Runs:
                 conf[setting] = 'grouped'
 
             print(runs)
-            groups.append(Group(runs=runs, conf=conf))
+            groups.append(Group(runs=runs, conf=conf, steps=steps, times=times))
 
         return groups
 
@@ -239,31 +296,68 @@ class Runs:
 
 
 class Group:
-    def __init__(self, runs, conf, time=False):
+    def __init__(self, runs, conf, steps=True, times=True, many=True):
         self.runs = runs
         self.conf = conf
-        self.time = time
 
-        self.up = None
-        self.low = None
-        self.df = None
-        self.n = None
-        self.n_changes = None
+        self.times = times
+        self.steps = steps
 
-        self.aggregate()
+        self.up = {}
+        self.low = {}
+        self.df = {}
+        self.n = {}
+        self.n_changes = {}
 
-    @property
-    def steps(self):
-        return not self.time
-
-    def aggregate(self):
-        if self.time:
-            self.aggregate_time()
-        else:
+        if self.times:
+            self.aggregate_time(many=many)
+        if self.steps:
             self.aggregate_steps()
 
-    def aggregate_time(self):
-        pass
+    def aggregate_time(self, many=True, only_done=False):
+        if only_done:
+            runs = [run for run in self.runs if run.done]
+        else:
+            runs = self.runs
+
+        columns = set.union(*[set(run.df.columns.values.tolist()) for run in self.runs])
+        columns.remove('times')
+        columns.add('steps')
+
+        times = []
+        amounts = []
+        means = defaultdict(list)
+        upper_bounds = defaultdict(list)
+        lower_bounds = defaultdict(list)
+
+        latest_times = [run.df.tail(1)['times'].item() for run in runs]
+
+        if many:
+            times = runs[0].df['times'].tolist()
+            for run in runs[1:]:
+                times += run.df['times'].tolist()
+                times.sort()
+        else:
+            times = runs[latest_times.index(max(latest_times))].df['times'].tolist()
+
+        for time in times:
+            amounts.append(len([t for t in latest_times if t >= time]))
+            latest_rows_until_this_time = [run.df[run.df['times'] <= time].tail(1) for run in runs]
+
+            for column in columns:
+                samples = [row.index.item() if column == 'steps' else row[column].item() for row in latest_rows_until_this_time]
+                mean = sum(samples) / len(samples)
+                low, up = bootstrap_ci(samples, 2000)
+
+                means[column].append(mean)
+                lower_bounds[column].append(low)
+                upper_bounds[column].append(up)
+
+        self.n['times'] = pandas.Series(data=amounts, index=times)
+        self.up['times'] = pandas.DataFrame(data=upper_bounds, index=times)
+        self.low['times'] = pandas.DataFrame(data=lower_bounds, index=times)
+        self.df['times'] = pandas.DataFrame(data=means, index=times)
+        self.n_changes['times'] = sorted(latest_times)
 
     def dict(self, n):
         d = {'c': n, 'n': len(self)}
@@ -299,11 +393,11 @@ class Group:
                 lower_bounds[column].append(low)
                 upper_bounds[column].append(up)
 
-        self.n = pandas.Series(data=amounts, index=index)
-        self.up = pandas.DataFrame(data=upper_bounds, index=index)
-        self.low = pandas.DataFrame(data=lower_bounds, index=index)
-        self.df = pandas.DataFrame(data=means, index=index)
-        self.n_changes = sorted([run.df.index.max() for run in self.runs])
+        self.n['steps'] = pandas.Series(data=amounts, index=index)
+        self.up['steps'] = pandas.DataFrame(data=upper_bounds, index=index)
+        self.low['steps'] = pandas.DataFrame(data=lower_bounds, index=index)
+        self.df['steps'] = pandas.DataFrame(data=means, index=index)
+        self.n_changes['steps'] = sorted([run.df.index.max() for run in self.runs])
 
     def __repr__(self):
         return "Group({} [{}])".format(self.name, len(self))
@@ -315,57 +409,75 @@ class Group:
     def name(self):
         return '-'.join('{}_{}'.format(left, right) for left, right in self.conf.items() if right is not 'grouped')
 
-    def trace(self, column, color, column2=None, sec=False, hours=False):
+    def trace(self, column, color, column2=None, sec=False, hours=False, expand=False):
+        xax = 'times' if hours else 'steps'
+        switch1 = xax == column
+        switch2 = xax == column2
+
         thing = [
             go.Scatter(
                 name='0.05',
-                x=self.df.index,
-                y=self.low[column],
+                x=self.df[xax].index,
+                y=self.low[xax].index if switch1 else self.low[xax][column],
                 marker=go.scatter.Marker(color=color_string(color, alpha=0.1)),
                 line=dict(width=0),
                 mode='lines',
                 showlegend=False,
+                # customdata=customdata,
                 hoverinfo='skip'),
             go.Scatter(
                 name=self.name,
-                x=self.df.index,
-                y=self.df[column],
-                text=self.n,
+                x=self.df[xax].index,
+                y=self.df[xax].index if switch1 else self.df[xax][column],
+                text=self.n[xax],
                 hovertemplate="%{y:.4f} [%{text}]",
                 mode='lines',
                 line=go.scatter.Line(color=color_string(color)),
                 fillcolor=color_string(color, alpha=0.1),
+                # customdata=customdata,
                 fill='tonexty'),
             go.Scatter(
                 name='0.95',
-                x=self.df.index,
-                y=self.up[column],
+                x=self.df[xax].index,
+                y=self.df[xax].index if switch1 else self.up[xax][column],
                 mode='lines',
                 marker=go.scatter.Marker(color=color_string(color, alpha=0.1)),
                 line=dict(width=0),
                 fillcolor=color_string(color, alpha=0.1),
                 fill='tonexty',
                 showlegend=False,
+                # customdata=customdata,
                 hoverinfo='skip'),
             go.Scatter(
-                x=self.n_changes,
-                y=[self.df[column][step] for step in self.n_changes],
+                x=self.n_changes[xax],
+                y=self.n_changes[xax] if switch1 else [self.df[xax][column][step] for step in self.n_changes[xax]],
                 mode='markers',
                 hoverinfo='text',
-                text=list(reversed(range(len(self.n_changes)))),
+                text=list(reversed(range(len(self.n_changes[xax])))),
                 textposition='bottom center',
                 showlegend=False,
                 marker=go.scatter.Marker(color=color_string(color), symbol='diamond')
             )
         ]
 
+        # thing += [go.Scatter(
+        #     x=run.df.index,
+        #     y=run.df[column],
+        #     name=run.name,
+        #     mode='lines',
+        #     line=go.scatter.Line(color=color_string(color, alpha=1 if expand else 0), width=1 if expand else 0),
+        #     showlegend=False,
+        #     hoverinfo='skip',
+        #     visible=expand
+        # ) for run in self.runs]
+
         if column2 is not None:
             thing.append(
                 go.Scatter(
                     name=self.name,
-                    x=self.df.index,
-                    y=self.df[column2],
-                    text=self.n,
+                    x=self.df[xax].index,
+                    y=self.df[xax].index if switch2 else self.df[xax][column2],
+                    text=self.n[xax],
                     hovertemplate="%{y:.4f} [%{text}]",
                     mode='lines',
                     showlegend=False,
@@ -404,7 +516,7 @@ class Run:
         self.done = None
 
         if done_hours is not None:
-            self.done = self.df.times.iat[-1] / 60 / 60 > done_hours
+            self.done = self.df.times.iat[-1] > done_hours
 
         if done_steps is not None:
             self.done = self.done or (self.df.index[-1] >= done_steps)
@@ -496,157 +608,14 @@ def parse_value(value):
 
 
 def test():
-    path = Path() / 'storage' / 'lisa3' / 'formal1'
-    runs = Runs(path, done_hours=20, done_steps=100000)
-    run = runs[3]
-
-    for window in ('all', 10000, 20000):
-        min_indices = []
-
-        for i_end in run.df.index:
-            i_start = max(0, i_end - window) if window != 'all' else 0
-            min_indices.append(run.df['rp_controller/mean'].loc[i_start: i_end].idxmin())
-
-        run.df = run.df.assign(**{"{}_{}".format(window, metric): run.df[metric].loc[min_indices].values for metric in VALIDATED_METRICS if metric in run.df.columns})
-
-    datas = [go.Scatter(x=run.df.index, y=run.df[col], mode='lines', name=col) for col in run.df.columns]
-
-    pyo.plot(
-        figure_or_data=go.Figure(
-            data=datas,
-            layout=go.Layout(yaxis=dict(type='log', autorange=True))
-        ),
-        auto_open=True
-    )
-
-    return
-
-    # return runs
-    data_1 = go.Scatter(x=run.df.index, y=run.df['controller/mean'], mode='lines', name='controller/mean')
-    data_2 = go.Scatter(x=run.df.index, y=run.df['controller/mean'].cummin(), mode='lines', name='cummin')
-    data_3 = go.Scatter(x=run.df.index, y=run.df['rp_controller/mean'], mode='lines', name='rp_controller/mean')
-
-    data_n = []
-    for window in ('all', 10000, 20000):
-        values = []
-
-        for i_end in run.df.index:
-            i_start = max(0, i_end - window) if window != 'all' else 0
-            values.append(run.df['rp_controller/mean'].loc[run.df['controller/mean'].loc[i_start: i_end].idxmin()])
-        data_n.append(go.Scatter(x=run.df.index, y=values, mode='lines', name='performance_{}'.format(window)))
-
-    pyo.plot(
-        figure_or_data=go.Figure(
-            data=[data_1, data_2, data_3] + data_n,
-            layout=go.Layout(yaxis=dict(type='log', autorange=True))
-        ),
-        auto_open=True
-    )
+    x = run_to_data_frame(Path() / 'storage' / 'final' / 'formal1' / 'han_0.5-blind_False-game_4ext-v_3-id_100')
+    print(x)
 
 
-def test2():
-    # https://plot.ly/python/dropdowns/
-
-    pyo.init_notebook_mode()
-
-    path = Path() / 'storage' / 'lisa3' / 'formal1'
-    runs = Runs(path, done_hours=20, done_steps=100000)
-    run = runs[3]
-
-    f = go.FigureWidget([go.Scatter(y=run.df['controller/mean'], x=run.df.index, mode='lines')])
-    scatter = f.data[0]
-    N = len(run.df)
-    scatter.x = scatter.x + np.random.rand(N) / 10 * (run.df['controller/mean'].max() - run.df['controller/mean'].min())
-    scatter.y = scatter.y + np.random.rand(N) / 10 * (run.df['controller/mean'].max() - run.df['controller/mean'].min())
-
-    def update_axes(xaxis, yaxis):
-        scatter = f.data[0]
-        scatter.x = run.df[xaxis]
-        scatter.y = run.df[yaxis]
-        with f.batch_update():
-            f.layout.xaxis.title = xaxis
-            f.layout.yaxis.title = yaxis
-            scatter.x = scatter.x + np.random.rand(N) / 10 * (run.df[xaxis].max() - run.df[xaxis].min())
-            scatter.y = scatter.y + np.random.rand(N) / 10 * (run.df[yaxis].max() - run.df[yaxis].min())
-
-    axis_dropdowns = interactive(update_axes, yaxis=run.df.select_dtypes('int64').columns, xaxis=run.df.select_dtypes('int64').columns)
-
-    # Put everything together
-
-    py.iplot(dict(data=VBox((HBox(axis_dropdowns.children), f))))
-
-
-def test3():
-    path = Path() / 'storage' / 'lisa3' / 'formal1'
-    runs = Runs(path, done_hours=20, done_steps=100000)
-    run = runs[0]
-
-    trace = go.Scatter(
-        x=run.df.index, y=run.df['controller/mean'],  # Data
-        mode='lines', name='controller/mean'  # Additional options
-    )
-
-    trace2 = go.Scatter(
-        x=run.df.index, y=run.df['imaginator/mean'],  # Data
-        mode='lines', name='imaginator/mean'  # Additional options
-    )
-
-    def getDataByButton(df, trace):
-        # return arg list to set x, y and chart title
-        return [dict(data=trace)]
-
-    updatemenus = list([
-        dict(
-            buttons=list([
-                dict(label='controller/mean',
-                     method='update',
-                     args=getDataByButton(run.df, trace)
-                     ),
-                dict(label='imaginator/mean',
-                     method='update',
-                     args=getDataByButton(run.df, trace2)
-                     ),
-            ]),
-            direction='left',
-            pad={'r': 10, 't': 10},
-            showactive=True,
-            type='buttons',
-            x=0.1,
-            xanchor='left',
-            y=1.1,
-            yanchor='top'
-        )
-    ])
-
-    layout = go.Layout(
-        title='controller/mean',
-        showlegend=True,
-        width=1200,
-        height=600,
-        font=dict(
-            family='Calibri, sans-serif',
-            size=18,
-            color='rgb(0,0,0)'),
-
-        xaxis=dict(
-            linewidth=1,
-            title='steps',
-            tickangle=-45,
-            tickfont=dict(
-                size=12
-            )
-        ),
-        yaxis=dict(
-            linewidth=1,
-            tickfont=dict(
-                size=12
-            )
-        ),
-        updatemenus=updatemenus
-    )
-
-    fig = go.Figure(data=[trace], layout=layout)
-    pyo.plot(fig)
-
+# print(test())
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal1')
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal2')
+# test()
+
+# runs_to_csvs(Path() / 'storage' / 'lisa' / 'bino2')
+# runs_to_csvs(Path() / 'storage' / 'lisa' / 'formal2')

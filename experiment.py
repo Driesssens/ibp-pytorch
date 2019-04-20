@@ -193,12 +193,20 @@ class Experiment:
     def file_path(self, file_name):
         return os.path.join(self.directory_path(), file_name)
 
-    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False, sparse_report=False, formal=False):
+    def train(self, n_episodes=-1, measure_performance_every_n_episodes=2000, measure_performance_n_sample_episodes=1000, continuous_store=False, sparse_report=False, formal=False, continue_clock=False, until_episode=None):
+
+        if until_episode is not None and self.agent.i_episode >= until_episode:
+            print("already done. Should be {}. Is: {}. Model: {}".format(until_episode, self.agent.i_episode, self.name))
+            return
+
         if sparse_report and not (continuous_store or formal):
             print("Warning: sparse report should only be used with continuous store. Will now disable sparse report")
             sparse_report = False
 
-        print("training {} for {} episodes".format(self.name, n_episodes))
+        if until_episode is not None:
+            print("training {} for {} episodes until {} (now {})".format(self.name, n_episodes, until_episode, self.agent.i_episode))
+        else:
+            print("training {} for {} episodes".format(self.name, n_episodes))
 
         self.initialize_environment()
 
@@ -208,9 +216,16 @@ class Experiment:
 
         self.tensorboard_writer = tensorboardX.SummaryWriter(self.directory_path())
 
+        if continue_clock:
+            self.tensorboard_writer.add_scalar('clock', 1, self.agent.i_episode + 1)
+
         first = True
 
         for i_episode in itertools.count():
+            if until_episode is not None and self.agent.i_episode >= until_episode:
+                print("trained for {} episodes until {}. Model: {}".format(i_episode, until_episode, self.name))
+                return
+
             self.env.reset()
 
             for i_action in range(self.conf.n_actions_per_episode):
