@@ -15,7 +15,7 @@ from utilities import get_color, color_string
 
 STANDARD_METRICS = (
     'controller/mean', 'imaginator/mean', 'rp_controller/mean', 'rp_imaginator/mean', 'manager_mean_ship_p', 'episodes_per_minute', 'mean_f_planets_in_each_imagination', 'mean_n_planets_in_each_imagination', 'imaginator_mean_dynamic_final_position_error',
-    'imaginator_mean_static_final_position_error')
+    'imaginator_mean_static_final_position_error', 'manager/mean')
 
 VALIDATED_METRICS = ('controller/mean', 'imaginator/mean', 'manager_mean_ship_p', 'mean_f_planets_in_each_imagination', 'mean_n_planets_in_each_imagination', 'imaginator_mean_dynamic_final_position_error', 'imaginator_mean_static_final_position_error')
 
@@ -23,7 +23,7 @@ STANDARD_TIME_AND_STEPS_BASED_ON = 'controller/mean'
 CSVS_FOLDER = 'csvs'
 
 
-def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDARD_TIME_AND_STEPS_BASED_ON, verbose=False, add_performance_agg=('all', 10000, 20000), add_manager_ship_p=True, time_in_hours=True):
+def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDARD_TIME_AND_STEPS_BASED_ON, verbose=False, add_performance_agg=('all', 10000, 20000), add_manager_ship_p=True, time_in_hours=True, sparse=False):
     tf_data = EventAccumulator(str(path), purge_orphaned_data=False).Reload().scalars
 
     if len(tf_data.Keys()) == 0:
@@ -39,6 +39,9 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
             filtered_tf_data.append(data)
             true_metrics.append(metric)
         except KeyError:
+            if metric == time_and_steps_based_on:
+                print("Skipping {} because it contains no {}.".format(str(path), time_and_steps_based_on))
+                return
             if verbose:
                 print("No metric {} for {}".format(metric, path))
             continue
@@ -48,7 +51,12 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
     n_steps_per_key = [len(tup) for tup in all_steps_per_key]
 
     set_of_n_steps = set(n_steps_per_key)
+
     min_n_steps = min(set_of_n_steps)
+
+    if min_n_steps == 0:
+        print("Skipping {} because it contains no rows.".format(str(path)))
+        return
 
     skipping_last_events = len(set_of_n_steps) == 2
 
@@ -60,11 +68,12 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
     if len(set_of_n_steps) > 2 or \
             len(set(all_steps_per_key)) > 3 or \
             skipping_last_events and max(set_of_n_steps) - min_n_steps > 1:
-        print("Skipping {} because not all metrics had same (number of) steps.".format(str(path)))
-        print(set(n_steps_per_key))
-        print(set(all_steps_per_key))
-        print("")
-        return
+        if not sparse:
+            print("Skipping {} because not all metrics had same (number of) steps.".format(str(path)))
+            print(set(n_steps_per_key))
+            print(set(all_steps_per_key))
+            print("")
+            return
 
     if skipping_last_events:
         print("Some last events of step #{} will be skipped for {}".format(min_n_steps + 1, str(path)))
@@ -74,6 +83,11 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
     valuess = {}
     imaginator_mean_dynamic_final_position_error_steps = []
     imaginator_mean_dynamic_final_position_error_len = None
+
+    if sparse:
+        sparse_steps = [event.step for event in tf_data.Items(time_and_steps_based_on)]
+        off_steps = [step - 1 for step in sparse_steps]
+        legit_steps = sparse_steps + off_steps
 
     for metric, tf_events in zip(true_metrics, filtered_tf_data):
         values = []
@@ -128,6 +142,9 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
         else:
             for tf_event in tf_events:
+                if sparse and tf_event.step not in legit_steps:
+                    continue
+
                 if last_step is not None and last_step == tf_event.step:
                     values.pop()
 
@@ -138,7 +155,12 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
     nice_times = []
 
-    offset = times[0]
+    try:
+        offset = times[0]
+    except IndexError:
+        print(times, valuess, steps, min_n_steps)
+        raise
+
     latest_raw = None
     i_clock = 0
 
@@ -174,7 +196,7 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
     data_frame = pandas.DataFrame(valuess, index=steps, columns=['times'] + true_metrics)
 
-    for window in ('all', 10000, 20000):
+    for window in add_performance_agg:
         min_indices = []
 
         for i_end in data_frame.index:
@@ -186,7 +208,7 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
     return data_frame
 
 
-def runs_to_csvs(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDARD_TIME_AND_STEPS_BASED_ON, verbose=False, exclude=()):
+def runs_to_csvs(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDARD_TIME_AND_STEPS_BASED_ON, verbose=False, exclude=(), sparse=False):
     (Path(CSVS_FOLDER) / path).mkdir(parents=True, exist_ok=True)
 
     for experiment_path in path.glob('*'):
@@ -194,7 +216,7 @@ def runs_to_csvs(path, metrics=STANDARD_METRICS, time_and_steps_based_on=STANDAR
             print("Excluded {}".format(experiment_path))
             continue
 
-        df = run_to_data_frame(experiment_path, metrics, time_and_steps_based_on, verbose=verbose)
+        df = run_to_data_frame(experiment_path, metrics, time_and_steps_based_on, verbose=verbose, sparse=sparse)
 
         if df is not None:
             print("Storing run {} as csv".format(experiment_path))
@@ -314,7 +336,7 @@ class Group:
         if self.steps:
             self.aggregate_steps()
 
-    def aggregate_time(self, many=True, only_done=False):
+    def aggregate_time(self, many=True, only_done=True):
         if only_done:
             runs = [run for run in self.runs if run.done]
         else:
@@ -359,8 +381,8 @@ class Group:
         self.df['times'] = pandas.DataFrame(data=means, index=times)
         self.n_changes['times'] = sorted(latest_times)
 
-    def dict(self, n):
-        d = {'c': n, 'n': len(self)}
+    def dict(self, n, xax='steps'):
+        d = {'c': n, 'n': self.n[xax].iloc[0]}
         for setting, value in self.conf.items():
             if value != 'grouped':
                 d[setting] = str(value)
@@ -550,7 +572,7 @@ class Run:
         return self.conf['id']
 
     def __call__(self, **kwargs):
-        return all(self.conf[setting] == value for setting, value in kwargs.items())
+        return all((isinstance(value, tuple) and self.conf[setting] in value) or self.conf[setting] == value for setting, value in kwargs.items())
 
     def __getitem__(self, key):
         if isinstance(key, slice):
@@ -617,5 +639,5 @@ def test():
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal2')
 # test()
 
-# runs_to_csvs(Path() / 'storage' / 'lisa' / 'bino2')
+runs_to_csvs(Path() / 'storage' / 'lisa' / 'bino2', sparse=True)
 # runs_to_csvs(Path() / 'storage' / 'lisa' / 'formal2')

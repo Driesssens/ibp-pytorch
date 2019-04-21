@@ -106,9 +106,9 @@ class BinomialManager(torch.nn.Module):
 
         for p, objekt in zip(action_distribution.probs, objects):
             if isinstance(objekt, Planet):
-                self.batch_planet_p.add(p)
+                self.batch_planet_p.add(p.detach())
             elif isinstance(objekt, Ship):
-                self.batch_ship_p.add(p)
+                self.batch_ship_p.add(p.detach())
 
         self.episode_estimated_values.append(value_estimation.detach())
 

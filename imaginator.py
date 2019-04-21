@@ -268,7 +268,14 @@ class Imaginator(torch.nn.Module):
                 if self.exp.conf.imaginator.batch_loss_sum:
                     (self.batch_loss.cumulative_value + self.batch_l2_loss.cumulative_value).backward()
                 else:
-                    (mean_loss + mean_l2_loss).backward()
+                    try:
+                        (mean_loss + mean_l2_loss).backward()
+                    except RuntimeError:
+                        print(self.batch_loss)
+                        print(self.batch_l2_loss)
+                        print(mean_loss)
+                        print(mean_l2_loss)
+                        raise
 
                 self.exp.log("imaginator_batch_norm", gradient_norm(self.parameters()))
 

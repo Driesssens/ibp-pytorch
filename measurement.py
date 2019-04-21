@@ -527,10 +527,13 @@ def experiment_name(model_folders, model_name, date_first=False):
 #     name = "v_{}-memoryless_True-id_{}".format(i + 1, i)
 #     performance_under_more_and_unobserved_planets(name, ('storage', 'lisa', 'varia_hleak'), 500)
 
-setmemory_object_embedding_introspection2("many-0_FULL_filter-0.7_blind_beacon0.5", ('storage', 'home', 'memless'), 200)
+# setmemory_object_embedding_introspection2("many-0_FULL_filter-0.7_blind_beacon0.5", ('storage', 'home', 'memless'), 200)
 
 # imaginator_planet_embedding_introspection_2("imgrea-many_4-l2_0-tresh_None-close_True-per_imag_False-l2of_False-sbf_False-v2", ('storage', 'home', 'memless'), 200)
 
 # full_imaginator_embedding_introspection("full-many_0-none-l2_0", ('storage', 'home', 'memless'), 200)
 
 # imaginator_planet_embedding_introspection_2("img_ice-rocks-2-top-3-l2_0.05-_v3", ('storage', 'home', 'memless'), n_measurements=200)
+
+performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_2-id_43", ('storage', 'final', 'formal1'), n_measurements=2000)
+performance_under_more_and_unobserved_planets("han_None-blind_False-game_base-v_2-id_47", ('storage', 'final', 'formal1'), n_measurements=2000)

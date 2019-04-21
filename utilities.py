@@ -94,6 +94,8 @@ class Accumulator:
             self.cumulative_value = value
         else:
             self.cumulative_value += value
+            # the_sum = self.cumulative_value + value
+            # self.cumulative_value = the_sum
 
         self.counter += 1
 

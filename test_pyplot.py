@@ -15,8 +15,8 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-path = Path() / 'storage' / 'final' / 'formal1'
-runs = Runs(path, done_hours=20, done_steps=100000)
+# runs = Runs(Path() / 'storage' / 'final' / 'formal1', done_hours=20, done_steps=100000)
+runs = Runs(Path() / 'storage' / 'final' / 'formal2', done_hours=20, done_steps=100000)(game=('base', 'beac', 'ext4'))
 groups = runs.group(['v'], times=True)
 
 print(groups)
@@ -138,12 +138,12 @@ app.layout = html.Div([
         Output('table', 'selected_rows')
     ],
     [Input(generate_control_id(setting), 'value' if setting in ['blind', 'game', 'early'] else 'values') for setting in runs.conf if setting not in ('v', 'id') and groups[0].conf[setting] != 'grouped'],
-    [State('table', "derived_virtual_data"), State('table', "derived_virtual_selected_rows"), ]
+    [State('table', "derived_virtual_data"), State('table', "derived_virtual_selected_rows"), State('xaxis-column', 'value')]
 )
 def display_controls(*args):
     print(args)
-    filter = args[:-2]
-    rows, selected_rows = args[-2:]
+    filter = args[:-3]
+    rows, selected_rows, xax = args[-3:]
 
     filtered_groups = []
 
@@ -157,7 +157,7 @@ def display_controls(*args):
         if member:
             filtered_groups.append(group)
 
-    data = [group.dict(n) for n, group in enumerate(groups) if group in filtered_groups]
+    data = [group.dict(n, 'times' if xax == 'hours' else 'steps') for n, group in enumerate(groups) if group in filtered_groups]
 
     preexisting_group_ids = [row['c'] for row in rows] if rows is not None else []
     selected_group_ids = [rows[i]['c'] for i in selected_rows] if selected_rows is not None else []
@@ -261,4 +261,4 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
 # https://github.com/plotly/dash-table
 
 if __name__ == '__main__':
-    app.run_server(debug=False, port=8050)
+    app.run_server(debug=False, port=8052)
