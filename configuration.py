@@ -135,7 +135,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  han_per_imagination=False,
                  blind_first_action=True,
                  filter_before_imagining=False,
-                 manual_ship_selection=False
+                 manual_ship_selection=False,
+                 aggregation_function='mean'
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -172,6 +173,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
         self.filter_before_imagining = filter_before_imagining
 
         self.manual_ship_selection = manual_ship_selection
+
+        self.aggregation_function = aggregation_function
 
 
 class ImaginatorConfiguration(Configuration):

@@ -447,10 +447,11 @@ class Group:
     def name(self):
         return '-'.join('{}_{}'.format(left, right) for left, right in self.conf.items() if right is not 'grouped')
 
-    def trace(self, column, color, column2=None, sec=False, hours=False, line_width=1, shade=0.1, diamonds=False):
+    def trace(self, column, color, column2=None, sec=False, hours=False, line_width=1, shade=0.1, diamonds=False, column3=None):
         xax = 'times' if hours else 'steps'
         switch1 = xax == column
         switch2 = xax == column2
+        switch3 = xax == column3
 
         # if self.conf['han'] is None:
         #     color = (230, 29, 99)
@@ -552,6 +553,20 @@ class Group:
                     showlegend=False if sec else False,
                     line=go.scatter.Line(color=color_string(color), dash='solid' if True else 'dashdot', width=line_width if sec else line_width / 2),
                     yaxis='y2' if sec else 'y'),
+            )
+
+        if column3 is not None:
+            thing.append(
+                go.Scatter(
+                    name=self.name,
+                    x=self.df[xax].index,
+                    y=self.df[xax].index if switch3 else self.df[xax][column3],
+                    text=self.n[xax],
+                    hovertemplate="%{y:.4f} [%{text}]",
+                    mode='lines',
+                    showlegend=False if sec else False,
+                    line=go.scatter.Line(color=color_string(color), dash='solid' if True else 'dashdot', width=line_width if sec else line_width / 2),
+                    yaxis='y3'),
             )
 
             # if not sec:

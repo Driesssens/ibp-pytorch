@@ -370,7 +370,14 @@ class SetMemory(torch.nn.Module):
         if len(filtered_object_embeddings) == 0:
             aggregate_embedding = torch.zeros(self.exp.conf.controller.object_embedding_length)
         else:
-            aggregate_embedding = torch.mean(torch.stack(filtered_object_embeddings), dim=0)
+            if self.exp.conf.controller.aggregation_function == 'mean':
+                aggregate_embedding = torch.mean(torch.stack(filtered_object_embeddings), dim=0)
+            if self.exp.conf.controller.aggregation_function == 'sum':
+                aggregate_embedding = torch.sum(torch.stack(filtered_object_embeddings), dim=0)
+                print('sum')
+            if self.exp.conf.controller.aggregation_function == 'max':
+                print('max')
+                aggregate_embedding = torch.max(torch.stack(filtered_object_embeddings), dim=0)[0]
 
         if len(self.exp.conf.controller.aggregate_function_layer_sizes) > 0:
             aggregate_embedding = self.aggregate_function(aggregate_embedding)
