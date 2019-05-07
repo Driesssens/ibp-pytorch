@@ -36,7 +36,12 @@ class ImaginationBasedPlanner:
         self.batch_ship_p = Accumulator()
 
     def act(self):
-        filter_indices = [True] * self.exp.env.n_obj()
+
+        if self.exp.conf.controller.manual_ship_selection:
+            filter_indices = [False] * self.exp.env.n_obj()
+            filter_indices[0] = True
+        else:
+            filter_indices = [True] * self.exp.env.n_obj()
 
         if self.controller_and_memory is not None:
             object_embeddings = None

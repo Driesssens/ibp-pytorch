@@ -7,7 +7,6 @@ import math
 from utilities import get_color, color_string
 import pandas as pd
 import plotly.graph_objs as go
-import plotly
 import time
 from pathlib import Path
 from cool_data_analysis import Runs, runs_to_csvs
@@ -17,25 +16,12 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal1')
-# runs = Runs(Path() / 'storage' / 'final' / 'formal1', done_hours=20, done_steps=100000)(game='base', han=None)
-# groups = runs.group(['v'], times=False)
-#
+runs = Runs(Path() / 'storage' / 'final' / 'formal1', done_hours=20, done_steps=100000)(game='base', han=None)
+groups = runs.group(['v'], times=False)
+
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal2')
 # runs = Runs(Path() / 'storage' / 'final' / 'formal2', done_hours=20, done_steps=100000)(game=('base', 'beac', '4ext'))
 # groups = runs.group(['v'], times=True)
-
-# runs_to_csvs(Path() / 'storage' / 'final' / 'formal4')
-# runs = Runs(Path() / 'storage' / 'final' / 'formal3', done_hours=20, done_steps=10000)
-# groups = runs.group(['v'], times=False)
-
-runs_to_csvs(Path() / 'storage' / 'graphs' / 'formal1_only_blind')
-runs = Runs(Path() / 'storage' / 'graphs' / 'formal1_only_blind', done_hours=20, done_steps=100000)
-groups = runs.group(['v'], times=False)
-
-# runs_to_csvs(Path() / 'storage' / 'graphs' / 'formal2')
-# runs = Runs(Path() / 'storage' / 'graphs' / 'formal2', done_hours=20, done_steps=100000)
-# groups = runs.group(['v'], times=True)
-
 
 print(groups)
 i_color = 0
@@ -53,23 +39,23 @@ def generate_control_id(setting):
 app.layout = html.Div([
     html.Div([
         html.Div([
-            html.Label('width: ', style={'display': 'inline-block'}),
-            html.Div(id='width-output', style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id='width', min=1, max=1000, value=700, step=1), style={'float': 'right', 'flex': '1'})
-        ], style={'display': 'flex', 'height': '30px'}),
+            html.Div(id='width-output', style={'float': 'left'}),
+            dcc.Slider(
+                id='width',
+                min=1,
+                max=1000,
+                value=200,
+                step=1,
+            )]),
         html.Div([
-            html.Label('height: ', style={'display': 'inline-block'}),
-            html.Div(id='height-output', style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id='height', min=1, max=1000, value=300, step=1), style={'float': 'right', 'flex': '1'})
-        ], style={'display': 'flex', 'height': '30px'}),
-        html.Div([
-            html.Label('line width: ', style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id='line-width', min=0.5, marks={i / 2: i / 2 for i in range(1, 10)}, max=5, value=1.5, step=0.5), style={'float': 'right', 'flex': '1'})
-        ], style={'display': 'flex', 'height': '40px'}),
-        html.Div([
-            html.Label('shade: ', style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id='shade', min=0, marks={i / 10: i / 10 for i in range(5)}, max=0.5, value=0.15, step=0.05), style={'float': 'right', 'flex': '1'})
-        ], style={'display': 'flex', 'height': '40px'}),
+            html.Div(id='height-output', style={'float': 'left'}),
+            dcc.Slider(
+                id='height',
+                min=1,
+                max=1000,
+                value=200,
+                step=1,
+            )]),
 
         html.Div([
             dcc.RadioItems(
@@ -83,27 +69,6 @@ app.layout = html.Div([
                 id='xzoom',
                 options=[{'label': 'x1', 'value': 1}, {'label': 'x2', 'value': 2}],
                 value=1,
-                labelStyle={'display': 'inline-block'}
-            )], style={}),
-        html.Div([
-            dcc.RadioItems(
-                id='diamonds',
-                options=[{'label': 'diamonds', 'value': True}, {'label': 'no diamonds', 'value': False}],
-                value=False,
-                labelStyle={'display': 'inline-block'}
-            )], style={}),
-        html.Div([
-            dcc.RadioItems(
-                id='cards',
-                options=[{'label': 'cards', 'value': True}, {'label': 'no cards', 'value': False}],
-                value=True,
-                labelStyle={'display': 'inline-block'}
-            )], style={}),
-        html.Div([
-            dcc.RadioItems(
-                id='legend',
-                options=[{'label': 'legend', 'value': True}, {'label': 'no legend', 'value': False}],
-                value=True,
                 labelStyle={'display': 'inline-block'}
             )], style={}),
         html.Div([
@@ -130,6 +95,7 @@ app.layout = html.Div([
             dcc.Dropdown(
                 id='yaxis-column2',
                 options=[{'label': i, 'value': i} for i in available_indicators],
+                value='mean_n_planets_in_each_imagination'
             )], style={}),
         html.Div([
             dcc.RadioItems(
@@ -142,7 +108,7 @@ app.layout = html.Div([
             dcc.RadioItems(
                 id='secondary',
                 options=[{'label': i, 'value': i} for i in ['overlay', 'subplot']],
-                value='overlay',
+                value='subplot',
                 labelStyle={'display': 'inline-block'}
             )], style={}),
         html.Div([
@@ -152,7 +118,7 @@ app.layout = html.Div([
             dcc.RadioItems(
                 id='color-bind',
                 options=[{'label': i, 'value': i} for i in ['c_id', 'c_han']],
-                value='c_id',
+                value='c_han',
                 labelStyle={'display': 'inline-block'}
             )], style={}),
         html.Div([
@@ -161,8 +127,7 @@ app.layout = html.Div([
                 id=generate_control_id(setting),
                 options=[{'label': str(i), 'value': i} for i in values],
                 value=list(values)[0]
-            # ) if setting in ['blind', 'game', 'early', 'pon'] else
-            ) if setting in ['blind', 'early', 'pon'] else
+            ) if setting in ['blind', 'game', 'early'] else
             dcc.Checklist(
                 labelStyle={'display': 'inline-block'},
                 id=generate_control_id(setting),
@@ -184,12 +149,18 @@ app.layout = html.Div([
             style_data_conditional=[{"if": {"filter": 'c eq num({})'.format(i), 'column_id': 'c'}, 'backgroundColor': color_string(get_color(i, shuffle=i_color)), 'color': color_string(get_color(i, shuffle=i_color))} for i, _ in enumerate(groups)],
             selected_rows=[0]
         ),
+        # html.Div([
+        #     dcc.Checklist(
+        #         id='selected-runs',
+        #         options=[{'label': i, 'value': i} for i in available_group_names],
+        #         values=available_group_names
+        #     )], style={}),
 
-    ], style={'float': 'left', 'height': '100%', 'margin-right': '100px'}),
+    ], style={'float': 'left', 'height': '100%'}),
 
     dcc.Graph(id='indicator-graphic', animate=False, config=dict(scrollZoom=True, clear_on_unhover=True, showAxisDragHandles=True, showAxisRangeEntryBoxes=True, autoSizable=True, responsive=True, editable=True, toImageButtonOptions=dict(
-        format='svg',
-    )), style={'float': 'right', 'flex': '1', 'width': '90%', 'height': '90%', 'background-color': 'gray', 'padding': '10px'}),
+        format='svg'
+    )), style={'float': 'right', 'flex': '1', 'width': '90%', 'height': '90%'}),
 ], style={'display': 'flex', 'height': '98vh'})
 
 
@@ -198,7 +169,7 @@ app.layout = html.Div([
         Output('table', 'data'),
         Output('table', 'selected_rows')
     ],
-    [Input(generate_control_id(setting), 'value' if setting in ['blind', 'early', 'pon'] else 'values') for setting in runs.conf if setting not in ('v', 'id') and groups[0].conf[setting] != 'grouped'],
+    [Input(generate_control_id(setting), 'value' if setting in ['blind', 'game', 'early'] else 'values') for setting in runs.conf if setting not in ('v', 'id') and groups[0].conf[setting] != 'grouped'],
     [State('table', "derived_virtual_data"), State('table', "derived_virtual_selected_rows"), State('xaxis-column', 'value')]
 )
 def display_controls(*args):
@@ -237,13 +208,11 @@ def generate_output_id(value1, value2):
 def update_output(value):
     return value
 
-
 @app.callback(
     dash.dependencies.Output('height-output', 'children'),
     [dash.dependencies.Input('height', 'value')])
 def update_output(value):
     return value
-
 
 @app.callback([
     Output('indicator-graphic', 'figure'),
@@ -262,15 +231,13 @@ def update_output(value):
     Input('zoom', 'value'),
     Input('xzoom', 'value'),
     Input('height', 'value'),
-    Input('width', 'value'),
-    Input('line-width', 'value'),
-    Input('shade', 'value'),
-    Input('diamonds', 'value'),
-    Input('cards', 'value'),
-    Input('legend', 'value'),
+    Input('width', 'value')
+    # Input('indicator-graphic', 'hoverData')
 ]
 )
-def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary, zoom, xzoom, h, w, line_width, shade, diamonds, cards, legend):
+def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary, zoom, xzoom, h, w):
+    # hover_names = [point['customdata'] for point in hover['points'] if 'customdata' in point] if hover is not None else []
+    hover_names = []
 
     if button is not None:
         global i_color
@@ -280,11 +247,10 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
     print(selected_rows)
 
     traces = []
-    annotations = []
 
     selected_group_ids = [rows[i]['c'] for i in selected_rows] if selected_rows is not None else []
 
-    print('triggered', dash.callback_context.triggered)
+    print(dash.callback_context.triggered)
     new_xax = 'xaxis-column.value' in [thing['prop_id'] for thing in dash.callback_context.triggered]
     print(new_xax)
 
@@ -292,22 +258,10 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
 
     for i, group in enumerate(groups):
         if (selected_rows is not None) and (i in selected_group_ids):
-            the_color = i if color_bind == 'c_id' else (list(runs.conf['ent']).index(group.conf['ent']) if 'ent' in runs.conf else list(runs.conf['han']).index(group.conf['han']))
-            trace, annotation = group.trace(
-                yaxis_column_name,
-                get_color(the_color, shuffle=i_color),
-                yaxis_column_name2,
-                sec,
-                xaxis_column_name == 'hours',
-                line_width,
-                shade,
-                diamonds
-            )
+            the_color = i if color_bind == 'c_id' else (list(runs.conf['pon']).index(group.conf['pon']) if 'pon' in runs.conf else list(runs.conf['han']).index(group.conf['han']))
+            traces += group.trace(yaxis_column_name, get_color(the_color, shuffle=i_color), yaxis_column_name2, sec, xaxis_column_name == 'hours', True if group.name in hover_names else False)
 
-            traces += trace
-            annotations += annotation
-
-    xax = go.layout.XAxis(automargin=False, showline=True, rangemode='tozero', range=([0, 24.1 * xzoom] if xaxis_column_name == 'hours' else [0, 100000 + 10]),)
+    xax = go.layout.XAxis(automargin=True, showline=True, rangemode='tozero', range=([0, 24 * xzoom] if xaxis_column_name == 'hours' else [0, 100000]))
 
     if yaxis_type == 'log':
         yrange = [math.log10(0.015), math.log10(zoom)]
@@ -321,33 +275,32 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
                     width=w,
                     autosize=False,
                     # yaxis=go.layout.YAxis(type='linear' if yaxis_type == 'Linear' else 'log', hoverformat=".4f", automargin=True, showline=True),
-                    yaxis=go.layout.YAxis(type=yaxis_type, automargin=False, range=yrange, showline=False, domain=[0.25, 1] if yaxis_column_name2 is not None and sec else [0, 1]),
+                    yaxis=go.layout.YAxis(type=yaxis_type, automargin=True, range=yrange, showline=False, domain=[0.25, 1] if sec else [0, 1]),
                     yaxis2=go.layout.YAxis(
                         type=yaxis_type if yaxis_type2 == 'same' else yaxis_type2,
-                        automargin=False,
+                        automargin=True,
                         showline=False,
-                        overlaying='free',
-                        side='left',
+                        overlaying='free' if sec else 'y',
+                        side='left' if sec else 'right',
                         zeroline=True,
                         rangemode='tozero',
                         autorange=True,
-                        domain=[0, 0.2],
-                    ) if yaxis_column_name2 is not None and sec else None,
+                        domain=[0, 0.2] if sec else [0, 1]
+                    ) if yaxis_column_name2 is not None and yaxis_type2 != 'same' else None,
                     xaxis=xax,
-                    margin={'l': 50, 'b': 60, 't': 10, 'r': 70},
-                    showlegend=legend,
-                    legend=go.layout.Legend(x=1, xanchor='right', bgcolor='rgba(255,0,0,0)'),
+                    margin={'l': 40, 'b': 25, 't': 25, 'r': 25},
+                    showlegend=False,
+                    legend=go.layout.Legend(x=0.5, xanchor='center'),
                     dragmode='pan',
                     # clickmode='event+select',
                     hoverlabel=go.layout.Hoverlabel(namelength=-1),
-                    uirevision=True,
-                    annotations=annotations if cards else []
+                    uirevision=True
                 )
             },
             [{
                 "if": {"filter": 'c eq num({})'.format(i), 'column_id': 'c'},
-                'backgroundColor': color_string(get_color(i if color_bind == 'c_id' else (list(runs.conf['ent']).index(group.conf['ent']) if 'ent' in runs.conf else list(runs.conf['han']).index(group.conf['han'])), shuffle=i_color)),
-                'color': color_string(get_color(i if color_bind == 'c_id' else (list(runs.conf['ent']).index(group.conf['ent']) if 'ent' in runs.conf else list(runs.conf['han']).index(group.conf['han'])), shuffle=i_color))
+                'backgroundColor': color_string(get_color(i if color_bind == 'c_id' else (list(runs.conf['pon']).index(group.conf['pon']) if 'pon' in runs.conf else list(runs.conf['han']).index(group.conf['han'])), shuffle=i_color)),
+                'color': color_string(get_color(i if color_bind == 'c_id' else (list(runs.conf['pon']).index(group.conf['pon']) if 'pon' in runs.conf else list(runs.conf['han']).index(group.conf['han'])), shuffle=i_color))
             } for i, group in enumerate(groups)]
     )
 

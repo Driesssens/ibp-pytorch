@@ -134,7 +134,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
                  simplehan_threshold=None,
                  han_per_imagination=False,
                  blind_first_action=True,
-                 filter_before_imagining=False
+                 filter_before_imagining=False,
+                 manual_ship_selection=False
                  ):
         self.learning_rate = learning_rate
         self.max_gradient_norm = max_gradient_norm
@@ -169,6 +170,8 @@ class SetControllerAndSetMemoryConfiguration(Configuration):
 
         self.blind_first_action = blind_first_action
         self.filter_before_imagining = filter_before_imagining
+
+        self.manual_ship_selection = manual_ship_selection
 
 
 class ImaginatorConfiguration(Configuration):

@@ -271,10 +271,19 @@ class Experiment:
                         self.path = old_path
                         self.name = old_name
 
-    def render(self, slp=0):
+    def render(self, slp=0, size=None, small=False):
         print("rendering {}".format(self.name))
 
-        self.initialize_environment()
+        if size is not None:
+            self.initialize_environment(size=size)
+        else:
+            self.initialize_environment()
+
+        if size is not None:
+            self.env.render_window_size = size
+
+        if small:
+            self.env.mass_to_pixel_ratio /= 2
 
         self.env.render_after_each_step = True
         self.train_model = False
@@ -397,7 +406,7 @@ class Experiment:
         del self.agent.controller_and_memory_mean_task_cost_measurements
         del self.agent.manager_mean_task_cost_measurements
 
-    def initialize_environment(self):
+    def initialize_environment(self, size=900):
         self.env = SpaceshipEnvironment(
             n_planets=self.conf.n_planets,
             n_actions_per_episode=self.conf.n_actions_per_episode,
@@ -414,7 +423,8 @@ class Experiment:
             beacon_probability=self.conf.beacon_probability,
             beacon_radial_distance_interval=self.conf.beacon_radial_distance_interval,
             cap_gravity=self.conf.gravity_cap,
-            n_ice_rocks=self.conf.n_ice_rocks
+            n_ice_rocks=self.conf.n_ice_rocks,
+            render_window_size=size
         )
 
     def log(self, name, value):

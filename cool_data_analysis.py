@@ -11,11 +11,12 @@ import plotly.plotly as py
 import plotly.graph_objs as go
 from ipywidgets import interactive, HBox, VBox
 from collections import defaultdict
-from utilities import get_color, color_string
+from utilities import get_color, color_string, color_bw
+import math
 
 STANDARD_METRICS = (
     'controller/mean', 'imaginator/mean', 'rp_controller/mean', 'rp_imaginator/mean', 'manager_mean_ship_p', 'episodes_per_minute', 'mean_f_planets_in_each_imagination', 'mean_n_planets_in_each_imagination', 'imaginator_mean_dynamic_final_position_error',
-    'imaginator_mean_static_final_position_error', 'manager/mean')
+    'imaginator_mean_static_final_position_error', 'manager/mean', 'manager_mean_planet_p')
 
 VALIDATED_METRICS = ('controller/mean', 'imaginator/mean', 'manager_mean_ship_p', 'mean_f_planets_in_each_imagination', 'mean_n_planets_in_each_imagination', 'imaginator_mean_dynamic_final_position_error', 'imaginator_mean_static_final_position_error')
 
@@ -95,17 +96,20 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
 
         if time_and_steps_based_on == metric:
             for i_step, tf_event in enumerate(tf_events):
-                if i_step < min_n_steps:
-                    if last_step is not None and last_step == tf_event.step:
-                        steps.pop()
-                        times.pop()
-                        values.pop()
+                if last_step is not None and last_step == tf_event.step:
+                    steps.pop()
+                    times.pop()
+                    values.pop()
 
-                    steps.append(tf_event.step)
-                    times.append(tf_event.wall_time)
-                    values.append(tf_event.value)
+                steps.append(tf_event.step)
+                times.append(tf_event.wall_time)
+                values.append(tf_event.value)
 
-                    last_step = tf_event.step
+                last_step = tf_event.step
+
+            steps = steps[:min_n_steps]
+            times = times[:min_n_steps]
+
         elif metric == 'imaginator_mean_dynamic_final_position_error':
             for i_step, tf_event in enumerate(tf_events):
                 if last_step is not None and last_step == tf_event.step:
@@ -194,7 +198,19 @@ def run_to_data_frame(path, metrics=STANDARD_METRICS, time_and_steps_based_on=ST
         print("Skipping {} because it contains no rows.".format(str(path)))
         return
 
-    data_frame = pandas.DataFrame(valuess, index=steps, columns=['times'] + true_metrics)
+    try:
+        data_frame = pandas.DataFrame(valuess, index=steps, columns=['times'] + true_metrics)
+    except ValueError:
+        print("steps")
+        print(len(steps))
+        print(steps)
+
+        for x, y in valuess.items():
+            print(x)
+            print(len(y))
+            print(y)
+
+        raise
 
     for window in add_performance_agg:
         min_indices = []
@@ -431,17 +447,44 @@ class Group:
     def name(self):
         return '-'.join('{}_{}'.format(left, right) for left, right in self.conf.items() if right is not 'grouped')
 
-    def trace(self, column, color, column2=None, sec=False, hours=False, expand=False):
+    def trace(self, column, color, column2=None, sec=False, hours=False, line_width=1, shade=0.1, diamonds=False):
         xax = 'times' if hours else 'steps'
         switch1 = xax == column
         switch2 = xax == column2
+
+        # if self.conf['han'] is None:
+        #     color = (230, 29, 99)
+        #     fro = 0
+        #     name = 'full'
+        # else:
+        #     color = (28, 149, 135)
+        #     fro = 100*2 - 1
+        #     name = 'only ship'
+
+        annotations = [go.layout.Annotation(
+            x=self.df[xax].index[-1],
+            y=math.log10((self.df[xax].index if switch1 else self.df[xax][column]).iloc[-1]),
+            xanchor='left',
+            text='{y:.4f}'.format(y=(self.df[xax].index if switch1 else self.df[xax][column]).iloc[-1]),
+            bgcolor=color_string(color),
+            bordercolor=color_string(color),
+            font=dict(color=color_bw(color)),
+            showarrow=True,
+            ay=0,
+            ax=8,
+            axref='pixel',
+            yanchor='auto',
+            xshift=5,
+            arrowsize=1,
+            arrowhead=2
+        )]
 
         thing = [
             go.Scatter(
                 name='0.05',
                 x=self.df[xax].index,
                 y=self.low[xax].index if switch1 else self.low[xax][column],
-                marker=go.scatter.Marker(color=color_string(color, alpha=0.1)),
+                marker=go.scatter.Marker(color=color_string(color, alpha=shade)),
                 line=dict(width=0),
                 mode='lines',
                 showlegend=False,
@@ -454,8 +497,8 @@ class Group:
                 text=self.n[xax],
                 hovertemplate="%{y:.4f} [%{text}]",
                 mode='lines',
-                line=go.scatter.Line(color=color_string(color)),
-                fillcolor=color_string(color, alpha=0.1),
+                line=go.scatter.Line(color=color_string(color), width=line_width),
+                fillcolor=color_string(color, alpha=shade),
                 # customdata=customdata,
                 fill='tonexty'),
             go.Scatter(
@@ -463,24 +506,28 @@ class Group:
                 x=self.df[xax].index,
                 y=self.df[xax].index if switch1 else self.up[xax][column],
                 mode='lines',
-                marker=go.scatter.Marker(color=color_string(color, alpha=0.1)),
+                marker=go.scatter.Marker(color=color_string(color, alpha=shade)),
                 line=dict(width=0),
-                fillcolor=color_string(color, alpha=0.1),
+                fillcolor=color_string(color, alpha=shade),
                 fill='tonexty',
                 showlegend=False,
                 # customdata=customdata,
                 hoverinfo='skip'),
-            go.Scatter(
-                x=self.n_changes[xax],
-                y=self.n_changes[xax] if switch1 else [self.df[xax][column][step] for step in self.n_changes[xax]],
-                mode='markers',
-                hoverinfo='text',
-                text=list(reversed(range(len(self.n_changes[xax])))),
-                textposition='bottom center',
-                showlegend=False,
-                marker=go.scatter.Marker(color=color_string(color), symbol='diamond')
-            )
         ]
+
+        if diamonds:
+            thing.append(
+                go.Scatter(
+                    x=self.n_changes[xax],
+                    y=self.n_changes[xax] if switch1 else [self.df[xax][column][step] for step in self.n_changes[xax]],
+                    mode='markers',
+                    hoverinfo='text',
+                    text=list(reversed(range(len(self.n_changes[xax])))),
+                    textposition='bottom center',
+                    showlegend=False,
+                    marker=go.scatter.Marker(color=color_string(color), symbol='diamond')
+                )
+            )
 
         # thing += [go.Scatter(
         #     x=run.df.index,
@@ -502,12 +549,34 @@ class Group:
                     text=self.n[xax],
                     hovertemplate="%{y:.4f} [%{text}]",
                     mode='lines',
-                    showlegend=False,
-                    line=go.scatter.Line(color=color_string(color), dash='solid' if sec else 'dot'),
-                    yaxis='y2'),
+                    showlegend=False if sec else False,
+                    line=go.scatter.Line(color=color_string(color), dash='solid' if True else 'dashdot', width=line_width if sec else line_width / 2),
+                    yaxis='y2' if sec else 'y'),
             )
 
-        return thing
+            # if not sec:
+            #     annotations.append(go.layout.Annotation(
+            #         x=self.df[xax].index[-1],
+            #         y=math.log10((self.df[xax].index if switch2 else self.df[xax][column2]).iloc[-1]),
+            #         xanchor='left',
+            #         text='{y:.4f}'.format(y=(self.df[xax].index if switch2 else self.df[xax][column2]).iloc[-1]),
+            #         bgcolor=color_string(color, alpha=shade * 2),
+            #         bordercolor=color_string(color, alpha=shade * 2),
+            #         font=dict(color=color_bw(color)),
+            #         showarrow=True,
+            #         ay=0,
+            #         ax=8,
+            #         axref='pixel',
+            #         yanchor='auto',
+            #         xshift=5,
+            #         arrowsize=1,
+            #         arrowhead=2
+            #     ))
+
+        # if self.conf['han'] is None:
+        #     annotations = []
+
+        return thing, annotations
 
 
 def dict_product(dicts):
@@ -633,11 +702,10 @@ def test():
     x = run_to_data_frame(Path() / 'storage' / 'final' / 'formal1' / 'han_0.5-blind_False-game_4ext-v_3-id_100')
     print(x)
 
-
 # print(test())
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal1')
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal2')
 # test()
 
-runs_to_csvs(Path() / 'storage' / 'lisa' / 'bino2', sparse=True)
-# runs_to_csvs(Path() / 'storage' / 'lisa' / 'formal2')
+# runs_to_csvs(Path() / 'storage' / 'lisa' / 'bino2', sparse=True)
+# runs_to_csvs(Path() / 'storage' / 'final' / 'formal4')

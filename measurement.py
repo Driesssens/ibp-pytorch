@@ -433,12 +433,14 @@ def setmemory_object_embedding_introspection(model_name, model_folders, n_measur
     plt.savefig(os.path.join(*(folders + ['matrix_scatter'])))
 
 
-def performance_under_more_and_unobserved_planets(model_name, model_folders, n_measurements, name=None, only_normal=False):
+def performance_under_more_and_unobserved_planets(model_name, model_folders, n_measurements, name=None, only_normal=False, only_print=False):
     if name is None:
         name = experiment_name(model_folders, model_name)
 
     folders = ['measurements', 'controller_performance' if only_normal else 'performance_under_more_and_unobserved_planets', name]
-    os.makedirs(os.path.join(*folders))
+
+    if not only_print:
+        os.makedirs(os.path.join(*folders))
 
     # for mode in ('normal', 'only_ship_observed', 'extra_planets', 'extra_planets_unobserved'):
     for mode in ('normal', 'only_ship_observed'):
@@ -454,7 +456,7 @@ def performance_under_more_and_unobserved_planets(model_name, model_folders, n_m
         experiment.agent.imaginator_mean_final_position_error_measurements = []
         experiment.agent.manager_mean_task_cost_measurements = []
 
-        experiment.agent.controller_and_memory.measure_performance_under_more_and_unobserved_planets = mode
+        experiment.agent.controller_and_memory.memory.measure_performance_under_more_and_unobserved_planets = mode
 
         if mode == 'extra_planets' or mode == 'extra_planets_unobserved':
             experiment.conf.n_secondary_planets += 1
@@ -465,12 +467,15 @@ def performance_under_more_and_unobserved_planets(model_name, model_folders, n_m
 
         results = pd.Series(imaginator_performance)
 
-        import matplotlib.pyplot as plt
-        results.plot.hist(grid=True)
-        plt.title('{}. #{}. mean: {}'.format(mode, n_measurements, imaginator_performance.mean()))
-        plt.ylabel('controller mean task cost')
+        if only_print:
+            print('{}. #{}. mean: {}'.format(mode, n_measurements, imaginator_performance.mean()))
+        else:
+            import matplotlib.pyplot as plt
+            results.plot.hist(grid=True)
+            plt.title('{}. #{}. mean: {}'.format(mode, n_measurements, imaginator_performance.mean()))
+            plt.ylabel('controller mean task cost')
 
-        plt.savefig(os.path.join(*(folders + ['controller_task_cost_on_{}'.format(mode)])))
+            plt.savefig(os.path.join(*(folders + ['controller_task_cost_on_{}'.format(mode)])))
 
 
 def analyze_actions(model_name, model_folders, n_measurements, name=None):
@@ -535,5 +540,8 @@ def experiment_name(model_folders, model_name, date_first=False):
 
 # imaginator_planet_embedding_introspection_2("img_ice-rocks-2-top-3-l2_0.05-_v3", ('storage', 'home', 'memless'), n_measurements=200)
 
-performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_2-id_43", ('storage', 'final', 'formal1'), n_measurements=2000)
-performance_under_more_and_unobserved_planets("han_None-blind_False-game_base-v_2-id_47", ('storage', 'final', 'formal1'), n_measurements=2000)
+performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_1-id_3", ('storage', 'final', 'formal1'), n_measurements=300, only_print=True)
+performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_2-id_43", ('storage', 'final', 'formal1'), n_measurements=300, only_print=True)
+performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_3-id_83", ('storage', 'final', 'formal1'), n_measurements=300, only_print=True)
+performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_4-id_123", ('storage', 'final', 'formal1'), n_measurements=300, only_print=True)
+performance_under_more_and_unobserved_planets("han_None-blind_True-game_base-v_5-id_163", ('storage', 'final', 'formal1'), n_measurements=300, only_print=True)

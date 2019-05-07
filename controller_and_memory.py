@@ -340,10 +340,11 @@ class SetMemory(torch.nn.Module):
 
         if hasattr(self, 'measure_performance_under_more_and_unobserved_planets'):
             if self.measure_performance_under_more_and_unobserved_planets == 'only_ship_observed':
-                assert filter_indices is None
-                filtered_objects = objects[1:] + self.exp.env.beacons
+                assert object_embeddings is None
+                filtered_objects = [self.exp.env.agent_ship]
+                # filtered_objects = objects[:1] + self.exp.env.beacons
             elif self.measure_performance_under_more_and_unobserved_planets == 'extra_planets_unobserved':
-                assert filter_indices is None
+                assert object_embeddings is None
                 filtered_objects = objects[1:] + self.exp.env.planets[:-1] + self.exp.env.beacons
 
         if object_embeddings is None:
