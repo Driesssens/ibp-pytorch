@@ -25,8 +25,8 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 # groups = runs.group(['v'], times=True)
 
 # runs_to_csvs(Path() / 'storage' / 'final' / 'formal4')
-# runs = Runs(Path() / 'storage' / 'final' / 'formal3', done_hours=20, done_steps=10000)
-# groups = runs.group(['v'], times=False)
+runs = Runs(Path() / 'storage' / 'final' / 'formal3', done_hours=20, done_steps=10000)
+groups = runs.group(['v'], times=False)
 
 # runs_to_csvs(Path() / 'storage' / 'graphs' / 'formal1_only_blind')
 # runs = Runs(Path() / 'storage' / 'graphs' / 'formal1_only_blind', done_hours=20, done_steps=100000)
@@ -35,14 +35,6 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 # runs_to_csvs(Path() / 'storage' / 'graphs' / 'formal2')
 # runs = Runs(Path() / 'storage' / 'graphs' / 'formal2', done_hours=20, done_steps=100000)
 # groups = runs.group(['v'], times=True)
-
-# runs_to_csvs(Path() / 'storage' / 'graphs' / 'formal7')
-# runs = Runs(Path() / 'storage' / 'graphs' / 'formal7', done_hours=2, done_steps=100000)
-# groups = runs.group(['v'], times=False)
-
-runs_to_csvs(Path() / 'storage' / 'graphs' / 'formal8')
-runs = Runs(Path() / 'storage' / 'graphs' / 'formal8', done_hours=2, done_steps=100000)
-groups = runs.group(['v'], times=True)
 
 
 print(groups)
@@ -68,7 +60,7 @@ app.layout = html.Div([
         html.Div([
             html.Label('height: ', style={'display': 'inline-block'}),
             html.Div(id='height-output', style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id='height', min=1, max=1000, value=300, step=1), style={'float': 'right', 'flex': '1'})
+            html.Div(dcc.Slider(id='height', min=1, max=1000, value=800, step=1), style={'float': 'right', 'flex': '1'})
         ], style={'display': 'flex', 'height': '30px'}),
         html.Div([
             html.Label('line width: ', style={'display': 'inline-block'}),
@@ -174,7 +166,19 @@ app.layout = html.Div([
                 value='subplot',
                 labelStyle={'display': 'inline-block'}
             )], style={}),
-
+        html.Div([
+            dcc.Dropdown(
+                id='yaxis-column4',
+                options=[{'label': i, 'value': i} for i in available_indicators],
+                value='manager/mean'
+            )], style={}),
+        html.Div([
+            dcc.RadioItems(
+                id='yaxis-type4',
+                options=[{'label': i, 'value': i} for i in ['linear', 'log', 'same']],
+                value='log',
+                labelStyle={'display': 'inline-block'}
+            )], style={}),
         html.Div([
             html.Button('Shuffle colors', id='button')
         ], style={}),
@@ -301,9 +305,13 @@ def update_output(value):
     Input('yaxis-column3', 'value'),
     Input('yaxis-type3', 'value'),
     Input('tertiary', 'value'),
+    Input('yaxis-column4', 'value'),
+    Input('yaxis-type4', 'value'),
+], [
+    State('filter-pon', 'value'),
 ]
 )
-def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary, zoom, xzoom, h, w, line_width, shade, diamonds, cards, legend, yaxis_column3, yaxis_type3, tertiary):
+def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis_type, yaxis_type2, rows, selected_rows, button, color_bind, secondary, zoom, xzoom, h, w, line_width, shade, diamonds, cards, legend, yaxis_column3, yaxis_type3, tertiary, yaxis_column4, yaxis_type4, pon):
 
     if button is not None:
         global i_color
@@ -336,16 +344,55 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
                 shade,
                 diamonds,
                 yaxis_column3,
+                yaxis_column4
             )
 
             traces += trace
             annotations += annotation
 
-    xax = go.layout.XAxis(automargin=False, showline=True, rangemode='tozero', range=([0, 24.1 * xzoom] if xaxis_column_name == 'hours' else [0, 100000 + 10]),
-                          anchor='y3' if yaxis_column3 is not None else ('y2' if yaxis_column_name2 is not None and sec else 'y'))
+    xax = go.layout.XAxis(automargin=False, showline=True, rangemode='tozero', range=([0, 24.1 * xzoom] if xaxis_column_name == 'hours' else [0, 60000]),
+                          anchor='y4', title='episodes trained')
+
+    traces.append(
+        go.Scatter(
+            name='base',
+            x=groups[0].df['steps'].index,
+            y=[0.03579 for _ in groups[0].df['steps'].index],
+            line=go.scatter.Line(dash='dot', color='rgba(0, 0, 0, 0.4)'),
+            mode='lines',
+            showlegend=False,
+            yaxis='y1',
+            hoverinfo='skip'),
+    )
+    traces.append(
+        go.Scatter(
+            name='base',
+            x=groups[0].df['steps'].index,
+            y=[0.03579 + 1*pon for _ in groups[0].df['steps'].index],
+            line=go.scatter.Line(dash='dot', color='rgba(0, 0, 0, 0.4)'),
+            mode='lines',
+            showlegend=False,
+            yaxis='y4',
+            hoverinfo='skip'),
+    )
+    traces.append(
+        go.Scatter(
+            name='base',
+            x=groups[0].df['steps'].index,
+            y=[0.03579 + 4*pon for _ in groups[0].df['steps'].index],
+            # marker=go.scatter.Marker(color='black', symbol='dash'),
+            line=go.scatter.Line(dash='dot', color='rgba(0, 0, 0, 0.4)'),
+            mode='lines',
+            showlegend=False,
+            yaxis='y4',
+            hoverinfo='skip'),
+    )
+
+
+
 
     if yaxis_type == 'log':
-        yrange = [math.log10(0.015), math.log10(zoom)]
+        yrange = [math.log10(0.02), math.log10(zoom)]
     else:
         yrange = [0, zoom]
 
@@ -357,7 +404,7 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
                     autosize=False,
                     # yaxis=go.layout.YAxis(type='linear' if yaxis_type == 'Linear' else 'log', hoverformat=".4f", automargin=True, showline=True),
                     yaxis=go.layout.YAxis(type=yaxis_type, automargin=False, range=yrange, showline=True,
-                                          domain=([0.4, 1] if yaxis_column3 is not None else [0.25, 1]) if yaxis_column_name2 is not None and sec else [0, 1],),
+                                          domain=([0.625, 1] if yaxis_column3 is not None else [0.25, 1]) if yaxis_column_name2 is not None and sec else [0, 1], title='task loss'),
                     yaxis2=go.layout.YAxis(
                         type=yaxis_type if yaxis_type2 == 'same' else yaxis_type2,
                         automargin=False,
@@ -366,9 +413,10 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
                         side='left',
                         zeroline=True,
                         rangemode='tozero',
-                        autorange=True,
-                        domain=[0.2, 0.37] if yaxis_column3 is not None else [0, 0.2],
-                    ) if yaxis_column_name2 is not None and sec else None,
+                        range=[0,4],
+                        domain=[0.510, 0.605],
+                        title='objects'
+                    ),
                     yaxis3=go.layout.YAxis(
                         type=yaxis_type if yaxis_type3 == 'same' else yaxis_type3,
                         automargin=False,
@@ -377,13 +425,15 @@ def update_graph(xaxis_column_name, yaxis_column_name, yaxis_column_name2, yaxis
                         side='left',
                         zeroline=True,
                         rangemode='tozero',
-                        autorange=True,
-                        domain=[0.0, 0.17] if yaxis_column_name2 is not None and sec else [0, 0.2],
-                    ) if yaxis_column3 is not None else None,
+                        range=[0.2, 1],
+                        domain=[0.395, 0.490],
+                        title='P[ship]'
+                    ),
+                    yaxis4=go.layout.YAxis(type=yaxis_type4, automargin=False, range=[math.log10(0.03), math.log10(zoom)], showline=True, domain=([0.0, 0.375]),title='management loss'),
                     xaxis=xax,
                     margin={'l': 50, 'b': 60, 't': 10, 'r': 70},
                     showlegend=legend,
-                    legend=go.layout.Legend(x=1, xanchor='right', bgcolor='rgba(255,0,0,0)'),
+                    legend=go.layout.Legend(x=0.5, xanchor='center', y=1, bgcolor='rgba(255,255,255,1)', orientation='h'),
                     dragmode='pan',
                     # clickmode='event+select',
                     hoverlabel=go.layout.Hoverlabel(namelength=-1),

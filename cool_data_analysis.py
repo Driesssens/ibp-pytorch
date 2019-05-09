@@ -447,11 +447,12 @@ class Group:
     def name(self):
         return '-'.join('{}_{}'.format(left, right) for left, right in self.conf.items() if right is not 'grouped')
 
-    def trace(self, column, color, column2=None, sec=False, hours=False, line_width=1, shade=0.1, diamonds=False, column3=None):
+    def trace(self, column, color, column2=None, sec=False, hours=False, line_width=1, shade=0.1, diamonds=False, column3=None, column4=None):
         xax = 'times' if hours else 'steps'
         switch1 = xax == column
         switch2 = xax == column2
         switch3 = xax == column3
+        switch4 = xax == column4
 
         # if self.conf['han'] is None:
         #     color = (230, 29, 99)
@@ -492,6 +493,7 @@ class Group:
                 # customdata=customdata,
                 hoverinfo='skip'),
             go.Scatter(
+                # name=r'β' + ' = {y:.2f}'.format(y=self.conf['ent']),
                 name=self.name,
                 x=self.df[xax].index,
                 y=self.df[xax].index if switch1 else self.df[xax][column],
@@ -587,6 +589,66 @@ class Group:
             #         arrowsize=1,
             #         arrowhead=2
             #     ))
+
+        if column4 is not None:
+            annotations += [go.layout.Annotation(
+                x=self.df[xax].index[-1],
+                y=math.log10((self.df[xax].index if switch4 else self.df[xax][column4]).iloc[-1]),
+                xanchor='left',
+                text='{y:.4f}'.format(y=(self.df[xax].index if switch4 else self.df[xax][column4]).iloc[-1]),
+                bgcolor=color_string(color),
+                bordercolor=color_string(color),
+                font=dict(color=color_bw(color)),
+                showarrow=True,
+                ay=0,
+                ax=8,
+                axref='pixel',
+                yanchor='auto',
+                xshift=5,
+                arrowsize=1,
+                arrowhead=2,
+                yref='y4'
+            )]
+
+            thing += [
+                go.Scatter(
+                    name='0.05',
+                    x=self.df[xax].index,
+                    y=self.low[xax].index if switch4 else self.low[xax][column4],
+                    marker=go.scatter.Marker(color=color_string(color, alpha=shade)),
+                    line=dict(width=0),
+                    mode='lines',
+                    showlegend=False,
+                    yaxis='y4',
+                    # customdata=customdata,
+                    hoverinfo='skip'),
+                go.Scatter(
+                    name=self.name,
+                    x=self.df[xax].index,
+                    y=self.df[xax].index if switch4 else self.df[xax][column4],
+                    text=self.n[xax],
+                    hovertemplate="%{y:.4f} [%{text}]",
+                    mode='lines',
+                    yaxis='y4',
+                    showlegend=False,
+                    line=go.scatter.Line(color=color_string(color), width=line_width),
+                    fillcolor=color_string(color, alpha=shade),
+                    # customdata=customdata,
+                    fill='tonexty'),
+                go.Scatter(
+                    name='0.95',
+                    x=self.df[xax].index,
+                    y=self.df[xax].index if switch4 else self.up[xax][column4],
+                    mode='lines',
+                    yaxis='y4',
+                    marker=go.scatter.Marker(color=color_string(color, alpha=shade)),
+                    line=dict(width=0),
+                    fillcolor=color_string(color, alpha=shade),
+                    fill='tonexty',
+                    showlegend=False,
+                    # customdata=customdata,
+                    hoverinfo='skip'),
+            ]
 
         # if self.conf['han'] is None:
         #     annotations = []
@@ -688,6 +750,9 @@ def configuration_from_experiment_name(experiment_name):
         setting, _, value = substring.rpartition('_')
 
         configuration[setting] = parse_value(value)
+
+    if 'agg' not in configuration:
+        configuration['agg'] = 'mean'
 
     return configuration
 
